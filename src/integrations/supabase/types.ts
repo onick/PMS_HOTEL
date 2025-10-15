@@ -14,6 +14,62 @@ export type Database = {
   }
   public: {
     Tables: {
+      audit_logs: {
+        Row: {
+          action: string
+          created_at: string
+          entity_id: string | null
+          entity_type: string
+          error_message: string | null
+          hotel_id: string
+          id: string
+          ip_address: unknown | null
+          new_values: Json | null
+          old_values: Json | null
+          success: boolean
+          user_agent: string | null
+          user_id: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          entity_id?: string | null
+          entity_type: string
+          error_message?: string | null
+          hotel_id: string
+          id?: string
+          ip_address?: unknown | null
+          new_values?: Json | null
+          old_values?: Json | null
+          success?: boolean
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          entity_id?: string | null
+          entity_type?: string
+          error_message?: string | null
+          hotel_id?: string
+          id?: string
+          ip_address?: unknown | null
+          new_values?: Json | null
+          old_values?: Json | null
+          success?: boolean
+          user_agent?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "audit_logs_hotel_id_fkey"
+            columns: ["hotel_id"]
+            isOneToOne: false
+            referencedRelation: "hotels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       channel_connections: {
         Row: {
           channel_id: string
@@ -99,6 +155,151 @@ export type Database = {
           status?: string
         }
         Relationships: []
+      }
+      data_access_logs: {
+        Row: {
+          accessed_fields: string[] | null
+          created_at: string
+          data_type: string
+          hotel_id: string
+          id: string
+          ip_address: unknown | null
+          legal_basis: string
+          purpose: string
+          subject_id: string | null
+          user_id: string
+        }
+        Insert: {
+          accessed_fields?: string[] | null
+          created_at?: string
+          data_type: string
+          hotel_id: string
+          id?: string
+          ip_address?: unknown | null
+          legal_basis: string
+          purpose: string
+          subject_id?: string | null
+          user_id: string
+        }
+        Update: {
+          accessed_fields?: string[] | null
+          created_at?: string
+          data_type?: string
+          hotel_id?: string
+          id?: string
+          ip_address?: unknown | null
+          legal_basis?: string
+          purpose?: string
+          subject_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_access_logs_hotel_id_fkey"
+            columns: ["hotel_id"]
+            isOneToOne: false
+            referencedRelation: "hotels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      data_requests: {
+        Row: {
+          completed_at: string | null
+          completed_by: string | null
+          data_export: Json | null
+          guest_id: string | null
+          hotel_id: string
+          id: string
+          notes: string | null
+          rejection_reason: string | null
+          request_type: string
+          requested_at: string
+          status: string
+        }
+        Insert: {
+          completed_at?: string | null
+          completed_by?: string | null
+          data_export?: Json | null
+          guest_id?: string | null
+          hotel_id: string
+          id?: string
+          notes?: string | null
+          rejection_reason?: string | null
+          request_type: string
+          requested_at?: string
+          status?: string
+        }
+        Update: {
+          completed_at?: string | null
+          completed_by?: string | null
+          data_export?: Json | null
+          guest_id?: string | null
+          hotel_id?: string
+          id?: string
+          notes?: string | null
+          rejection_reason?: string | null
+          request_type?: string
+          requested_at?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_requests_guest_id_fkey"
+            columns: ["guest_id"]
+            isOneToOne: false
+            referencedRelation: "guests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "data_requests_hotel_id_fkey"
+            columns: ["hotel_id"]
+            isOneToOne: false
+            referencedRelation: "hotels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      data_retention_policies: {
+        Row: {
+          auto_delete: boolean
+          created_at: string
+          data_type: string
+          hotel_id: string
+          id: string
+          legal_basis: string
+          retention_period_days: number
+          updated_at: string
+        }
+        Insert: {
+          auto_delete?: boolean
+          created_at?: string
+          data_type: string
+          hotel_id: string
+          id?: string
+          legal_basis: string
+          retention_period_days: number
+          updated_at?: string
+        }
+        Update: {
+          auto_delete?: boolean
+          created_at?: string
+          data_type?: string
+          hotel_id?: string
+          id?: string
+          legal_basis?: string
+          retention_period_days?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "data_retention_policies_hotel_id_fkey"
+            columns: ["hotel_id"]
+            isOneToOne: false
+            referencedRelation: "hotels"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       folio_charges: {
         Row: {
@@ -539,6 +740,33 @@ export type Database = {
         }
         Relationships: []
       }
+      permissions: {
+        Row: {
+          action: string
+          created_at: string
+          description: string | null
+          id: string
+          module: string
+          resource: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          module: string
+          resource?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          module?: string
+          resource?: string | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           created_at: string | null
@@ -709,6 +937,35 @@ export type Database = {
           },
         ]
       }
+      role_permissions: {
+        Row: {
+          created_at: string
+          id: string
+          permission_id: string
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          permission_id: string
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          permission_id?: string
+          role?: Database["public"]["Enums"]["app_role"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "role_permissions_permission_id_fkey"
+            columns: ["permission_id"]
+            isOneToOne: false
+            referencedRelation: "permissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       room_locks: {
         Row: {
           created_at: string | null
@@ -834,6 +1091,117 @@ export type Database = {
           },
         ]
       }
+      user_consents: {
+        Row: {
+          consent_text: string
+          consent_type: string
+          expires_at: string | null
+          granted: boolean
+          granted_at: string
+          guest_id: string | null
+          hotel_id: string
+          id: string
+          ip_address: unknown | null
+          revoked_at: string | null
+          user_id: string | null
+          version: string
+        }
+        Insert: {
+          consent_text: string
+          consent_type: string
+          expires_at?: string | null
+          granted: boolean
+          granted_at?: string
+          guest_id?: string | null
+          hotel_id: string
+          id?: string
+          ip_address?: unknown | null
+          revoked_at?: string | null
+          user_id?: string | null
+          version?: string
+        }
+        Update: {
+          consent_text?: string
+          consent_type?: string
+          expires_at?: string | null
+          granted?: boolean
+          granted_at?: string
+          guest_id?: string | null
+          hotel_id?: string
+          id?: string
+          ip_address?: unknown | null
+          revoked_at?: string | null
+          user_id?: string | null
+          version?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_consents_guest_id_fkey"
+            columns: ["guest_id"]
+            isOneToOne: false
+            referencedRelation: "guests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_consents_hotel_id_fkey"
+            columns: ["hotel_id"]
+            isOneToOne: false
+            referencedRelation: "hotels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_permissions: {
+        Row: {
+          expires_at: string | null
+          granted: boolean
+          granted_at: string
+          granted_by: string | null
+          hotel_id: string
+          id: string
+          permission_id: string
+          reason: string | null
+          user_id: string
+        }
+        Insert: {
+          expires_at?: string | null
+          granted?: boolean
+          granted_at?: string
+          granted_by?: string | null
+          hotel_id: string
+          id?: string
+          permission_id: string
+          reason?: string | null
+          user_id: string
+        }
+        Update: {
+          expires_at?: string | null
+          granted?: boolean
+          granted_at?: string
+          granted_by?: string | null
+          hotel_id?: string
+          id?: string
+          permission_id?: string
+          reason?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_permissions_hotel_id_fkey"
+            columns: ["hotel_id"]
+            isOneToOne: false
+            referencedRelation: "hotels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_permissions_permission_id_fkey"
+            columns: ["permission_id"]
+            isOneToOne: false
+            referencedRelation: "permissions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       user_roles: {
         Row: {
           created_at: string | null
@@ -875,6 +1243,16 @@ export type Database = {
         }
         Returns: boolean
       }
+      has_permission: {
+        Args: {
+          _action: string
+          _hotel_id: string
+          _module: string
+          _resource?: string
+          _user_id: string
+        }
+        Returns: boolean
+      }
       increment_inventory_holds: {
         Args: {
           p_day: string
@@ -890,6 +1268,17 @@ export type Database = {
           p_delta: number
           p_hotel_id: string
           p_room_type_id: string
+        }
+        Returns: undefined
+      }
+      log_data_access: {
+        Args: {
+          _accessed_fields: string[]
+          _data_type: string
+          _hotel_id: string
+          _legal_basis?: string
+          _purpose: string
+          _subject_id: string
         }
         Returns: undefined
       }
