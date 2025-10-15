@@ -268,8 +268,18 @@ export default function IncidentReports() {
         {isLoading ? (
           <div className="text-center py-4 text-muted-foreground">Cargando...</div>
         ) : incidents?.length === 0 ? (
-          <div className="text-center py-4 text-muted-foreground">
-            No hay incidencias reportadas
+          <div className="text-center py-8 space-y-4">
+            <div className="flex justify-center">
+              <div className="p-3 rounded-full bg-success/10">
+                <CheckCircle2 className="h-8 w-8 text-success" />
+              </div>
+            </div>
+            <div>
+              <p className="font-medium">¡Sin incidencias!</p>
+              <p className="text-sm text-muted-foreground mb-4">
+                No hay incidencias reportadas. Puedes reportar una nueva si encuentras algún problema.
+              </p>
+            </div>
           </div>
         ) : (
           <div className="space-y-3">

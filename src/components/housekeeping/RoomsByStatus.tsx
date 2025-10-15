@@ -81,9 +81,19 @@ export default function RoomsByStatus() {
         </CardHeader>
         <CardContent>
           {maintenanceRooms.length === 0 ? (
-            <p className="text-muted-foreground text-center py-8">
-              No hay habitaciones pendientes de limpieza
-            </p>
+            <div className="text-center py-8 space-y-3">
+              <div className="flex justify-center">
+                <div className="p-3 rounded-full bg-success/10">
+                  <CheckCircle2 className="h-8 w-8 text-success" />
+                </div>
+              </div>
+              <div>
+                <p className="font-medium">¡Todo limpio!</p>
+                <p className="text-sm text-muted-foreground">
+                  No hay habitaciones que requieran limpieza en este momento
+                </p>
+              </div>
+            </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
               {maintenanceRooms.map((room: any) => (

@@ -45,9 +45,19 @@ export default function TodayCheckouts() {
       </CardHeader>
       <CardContent>
         {!checkouts?.length ? (
-          <p className="text-muted-foreground text-center py-8">
-            No hay check-outs programados para hoy
-          </p>
+          <div className="text-center py-8 space-y-3">
+            <div className="flex justify-center">
+              <div className="p-3 rounded-full bg-muted">
+                <LogOut className="h-8 w-8 text-muted-foreground" />
+              </div>
+            </div>
+            <div>
+              <p className="font-medium">No hay salidas hoy</p>
+              <p className="text-sm text-muted-foreground">
+                No hay check-outs programados para hoy
+              </p>
+            </div>
+          </div>
         ) : (
           <div className="space-y-3">
             {checkouts.map((reservation: any) => {

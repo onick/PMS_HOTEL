@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Plus, Package } from "lucide-react";
+import { AlertTriangle, Plus, Package, Minus } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -178,55 +178,96 @@ export default function MaterialsInventory() {
         {isLoading ? (
           <div className="text-center py-4 text-muted-foreground">Cargando...</div>
         ) : materials?.length === 0 ? (
-          <div className="text-center py-4 text-muted-foreground">No hay materiales registrados</div>
+          <div className="text-center py-8 space-y-4">
+            <div className="flex justify-center">
+              <div className="p-3 rounded-full bg-muted">
+                <Package className="h-8 w-8 text-muted-foreground" />
+              </div>
+            </div>
+            <div>
+              <p className="font-medium">No hay materiales registrados</p>
+              <p className="text-sm text-muted-foreground mb-4">
+                Comienza agregando materiales al inventario
+              </p>
+            </div>
+          </div>
         ) : (
-          <div className="space-y-2">
+          <div className="space-y-3">
             {materials?.map((material) => {
-              const isLow = material.quantity <= material.min_quantity;
+              const isLowStock = material.quantity <= material.min_quantity;
+              const isCritical = material.quantity < material.min_quantity;
+              
               return (
                 <div
                   key={material.id}
-                  className={`flex items-center justify-between p-3 rounded-lg border ${
-                    isLow ? "border-destructive bg-destructive/5" : "border-border"
-                  }`}
+                  className={`p-4 rounded-lg border-2 ${
+                    isCritical
+                      ? "border-destructive bg-destructive/10 shadow-md"
+                      : isLowStock
+                      ? "border-warning bg-warning/5"
+                      : "border-border hover:bg-muted/50"
+                  } transition-all`}
                 >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium">{material.name}</span>
-                      {isLow && <AlertTriangle className="h-4 w-4 text-destructive" />}
-                    </div>
-                    <div className="text-sm text-muted-foreground">
-                      {material.category} • Min: {material.min_quantity} {material.unit}
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        <h4 className="font-semibold">{material.name}</h4>
+                        {isCritical && (
+                          <Badge variant="destructive" className="text-xs animate-pulse">
+                            <AlertTriangle className="h-3 w-3 mr-1" />
+                            ¡Crítico!
+                          </Badge>
+                        )}
+                        {isLowStock && !isCritical && (
+                          <Badge variant="outline" className="text-xs bg-warning/20 border-warning">
+                            <AlertTriangle className="h-3 w-3 mr-1" />
+                            Stock bajo
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground capitalize">
+                        {material.category}
+                      </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        updateQuantityMutation.mutate({
-                          id: material.id,
-                          quantity: Math.max(0, material.quantity - 1),
-                        })
-                      }
-                    >
-                      -
-                    </Button>
-                    <span className="font-bold min-w-[60px] text-center">
-                      {material.quantity} {material.unit}
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          updateQuantityMutation.mutate({
+                            id: material.id,
+                            quantity: Math.max(0, material.quantity - 1),
+                          })
+                        }
+                        disabled={updateQuantityMutation.isPending || material.quantity === 0}
+                      >
+                        <Minus className="h-3 w-3" />
+                      </Button>
+                      <span className={`font-bold min-w-[60px] text-center ${
+                        isCritical ? "text-destructive" : isLowStock ? "text-warning" : ""
+                      }`}>
+                        {material.quantity} {material.unit}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          updateQuantityMutation.mutate({
+                            id: material.id,
+                            quantity: material.quantity + 1,
+                          })
+                        }
+                        disabled={updateQuantityMutation.isPending}
+                      >
+                        <Plus className="h-3 w-3" />
+                      </Button>
+                    </div>
+                    <span className="text-xs text-muted-foreground">
+                      Mín: {material.min_quantity}
                     </span>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() =>
-                        updateQuantityMutation.mutate({
-                          id: material.id,
-                          quantity: material.quantity + 1,
-                        })
-                      }
-                    >
-                      +
-                    </Button>
                   </div>
                 </div>
               );

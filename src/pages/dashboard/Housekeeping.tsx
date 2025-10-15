@@ -16,20 +16,25 @@ export default function Housekeeping() {
         </p>
       </div>
 
+      {/* Estadísticas generales */}
       <DailyStats />
 
+      {/* Sección de prioridades - Lo más importante primero */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <TodayCheckouts />
         <CleaningPriority />
+        <TodayCheckouts />
       </div>
 
+      {/* Tareas operativas */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <RoomChecklist />
-        <MaterialsInventory />
+        <IncidentReports />
       </div>
 
-      <IncidentReports />
+      {/* Inventario */}
+      <MaterialsInventory />
 
+      {/* Vista general de habitaciones */}
       <RoomsByStatus />
     </div>
   );

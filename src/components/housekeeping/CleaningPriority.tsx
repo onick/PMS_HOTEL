@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, Clock, Calendar } from "lucide-react";
+import { AlertCircle, Clock, Calendar, CheckCircle2 } from "lucide-react";
 import { formatDate } from "@/lib/date-utils";
 
 export default function CleaningPriority() {
@@ -91,19 +91,19 @@ export default function CleaningPriority() {
               {highPriority.map((room: any) => (
                 <div
                   key={room.id}
-                  className="p-3 border border-destructive/30 rounded-lg bg-destructive/5"
+                  className="p-4 border-2 border-destructive/30 rounded-lg bg-destructive/5 hover:shadow-lg transition-all animate-pulse-slow"
                 >
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <span className="font-bold">Hab. {room.room_number}</span>
+                      <span className="font-bold text-lg">Hab. {room.room_number}</span>
                       <Badge variant="destructive" className="text-xs">
-                        Urgente
+                        ⚠️ Urgente
                       </Badge>
                     </div>
-                    <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Calendar className="h-3 w-3" />
-                      {room.arrivalCount} llegada{room.arrivalCount > 1 ? "s" : ""} hoy
-                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 text-sm font-medium text-destructive mb-1">
+                    <Calendar className="h-4 w-4" />
+                    {room.arrivalCount} llegada{room.arrivalCount > 1 ? "s" : ""} hoy
                   </div>
                   <p className="text-xs text-muted-foreground">
                     {room.room_types?.name}
@@ -138,9 +138,19 @@ export default function CleaningPriority() {
         )}
 
         {priorities?.length === 0 && (
-          <p className="text-muted-foreground text-center py-4">
-            No hay habitaciones pendientes de limpieza
-          </p>
+          <div className="text-center py-8 space-y-3">
+            <div className="flex justify-center">
+              <div className="p-3 rounded-full bg-success/10">
+                <CheckCircle2 className="h-8 w-8 text-success" />
+              </div>
+            </div>
+            <div>
+              <p className="font-medium">¡Excelente trabajo!</p>
+              <p className="text-sm text-muted-foreground">
+                Todas las habitaciones están limpias
+              </p>
+            </div>
+          </div>
         )}
       </CardContent>
     </Card>

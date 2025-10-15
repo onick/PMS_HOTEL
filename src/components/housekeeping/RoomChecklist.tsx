@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { ClipboardCheck } from "lucide-react";
+import { ClipboardCheck, CheckCircle2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "@/hooks/use-toast";
 
@@ -202,29 +202,42 @@ export default function RoomChecklist() {
       </CardHeader>
       <CardContent>
         {!selectedRoom ? (
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground mb-3">
-              Selecciona una habitación para iniciar el checklist:
-            </p>
-            {rooms?.map((room) => (
-              <Button
-                key={room.id}
-                variant="outline"
-                className="w-full justify-between"
-                onClick={() => setSelectedRoom(room.id)}
-              >
-                <span>
-                  Habitación {room.room_number} - {room.room_type?.name}
-                </span>
-                <Badge variant="secondary">Requiere limpieza</Badge>
-              </Button>
-            ))}
-            {rooms?.length === 0 && (
-              <div className="text-center py-4 text-muted-foreground">
-                No hay habitaciones en mantenimiento
+          <>
+            {rooms && rooms.length === 0 ? (
+              <div className="text-center py-8 space-y-4">
+                <div className="flex justify-center">
+                  <div className="p-3 rounded-full bg-success/10">
+                    <CheckCircle2 className="h-8 w-8 text-success" />
+                  </div>
+                </div>
+                <div>
+                  <p className="font-medium">¡Todo en orden!</p>
+                  <p className="text-sm text-muted-foreground">
+                    No hay habitaciones que requieran mantenimiento
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground mb-3">
+                  Selecciona una habitación para iniciar el checklist:
+                </p>
+                {rooms?.map((room) => (
+                  <Button
+                    key={room.id}
+                    variant="outline"
+                    className="w-full justify-between hover:bg-housekeeping/10 hover:border-housekeeping transition-all"
+                    onClick={() => setSelectedRoom(room.id)}
+                  >
+                    <span>
+                      Habitación {room.room_number} - {room.room_type?.name}
+                    </span>
+                    <Badge variant="secondary">Requiere limpieza</Badge>
+                  </Button>
+                ))}
               </div>
             )}
-          </div>
+          </>
         ) : (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
