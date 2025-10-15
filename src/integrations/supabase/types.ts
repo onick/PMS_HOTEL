@@ -131,6 +131,119 @@ export type Database = {
           },
         ]
       }
+      guest_notes: {
+        Row: {
+          created_at: string | null
+          guest_id: string
+          hotel_id: string
+          id: string
+          note: string
+          note_type: string | null
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          guest_id: string
+          hotel_id: string
+          id?: string
+          note: string
+          note_type?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          guest_id?: string
+          hotel_id?: string
+          id?: string
+          note?: string
+          note_type?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "guest_notes_guest_id_fkey"
+            columns: ["guest_id"]
+            isOneToOne: false
+            referencedRelation: "guests"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "guest_notes_hotel_id_fkey"
+            columns: ["hotel_id"]
+            isOneToOne: false
+            referencedRelation: "hotels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      guests: {
+        Row: {
+          country: string | null
+          created_at: string | null
+          date_of_birth: string | null
+          document_number: string | null
+          document_type: string | null
+          email: string | null
+          hotel_id: string
+          id: string
+          last_stay_date: string | null
+          name: string
+          notes: string | null
+          phone: string | null
+          preferences: Json | null
+          total_spent_cents: number | null
+          total_stays: number | null
+          updated_at: string | null
+          vip_status: boolean | null
+        }
+        Insert: {
+          country?: string | null
+          created_at?: string | null
+          date_of_birth?: string | null
+          document_number?: string | null
+          document_type?: string | null
+          email?: string | null
+          hotel_id: string
+          id?: string
+          last_stay_date?: string | null
+          name: string
+          notes?: string | null
+          phone?: string | null
+          preferences?: Json | null
+          total_spent_cents?: number | null
+          total_stays?: number | null
+          updated_at?: string | null
+          vip_status?: boolean | null
+        }
+        Update: {
+          country?: string | null
+          created_at?: string | null
+          date_of_birth?: string | null
+          document_number?: string | null
+          document_type?: string | null
+          email?: string | null
+          hotel_id?: string
+          id?: string
+          last_stay_date?: string | null
+          name?: string
+          notes?: string | null
+          phone?: string | null
+          preferences?: Json | null
+          total_spent_cents?: number | null
+          total_stays?: number | null
+          updated_at?: string | null
+          vip_status?: boolean | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "guests_hotel_id_fkey"
+            columns: ["hotel_id"]
+            isOneToOne: false
+            referencedRelation: "hotels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hotels: {
         Row: {
           address: string | null

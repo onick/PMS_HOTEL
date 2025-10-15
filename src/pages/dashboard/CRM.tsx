@@ -1,7 +1,11 @@
-import { Card } from "@/components/ui/card";
-import { Users } from "lucide-react";
+import { useState } from "react";
+import CRMStats from "@/components/crm/CRMStats";
+import GuestsList from "@/components/crm/GuestsList";
+import GuestDetails from "@/components/crm/GuestDetails";
 
 export default function CRM() {
+  const [selectedGuest, setSelectedGuest] = useState<any>(null);
+
   return (
     <div className="space-y-6">
       <div>
@@ -11,17 +15,15 @@ export default function CRM() {
         </p>
       </div>
 
-      <Card className="p-8 text-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="bg-crm/10 p-4 rounded-full">
-            <Users className="h-12 w-12 text-crm" />
-          </div>
-          <h2 className="text-xl font-semibold">Módulo en Desarrollo</h2>
-          <p className="text-muted-foreground max-w-md">
-            El CRM permitirá gestionar base de datos de huéspedes, historial de estancias, preferencias y programas de lealtad.
-          </p>
-        </div>
-      </Card>
+      <CRMStats />
+
+      <GuestsList onSelectGuest={setSelectedGuest} />
+
+      <GuestDetails
+        guest={selectedGuest}
+        open={!!selectedGuest}
+        onClose={() => setSelectedGuest(null)}
+      />
     </div>
   );
 }
