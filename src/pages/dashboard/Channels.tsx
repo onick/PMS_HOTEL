@@ -1,5 +1,7 @@
-import { Card } from "@/components/ui/card";
-import { Network } from "lucide-react";
+import ChannelStats from "@/components/channels/ChannelStats";
+import ChannelsList from "@/components/channels/ChannelsList";
+import InventorySync from "@/components/channels/InventorySync";
+import RecentBookings from "@/components/channels/RecentBookings";
 
 export default function Channels() {
   return (
@@ -11,17 +13,14 @@ export default function Channels() {
         </p>
       </div>
 
-      <Card className="p-8 text-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="bg-channel-manager/10 p-4 rounded-full">
-            <Network className="h-12 w-12 text-channel-manager" />
-          </div>
-          <h2 className="text-xl font-semibold">Módulo en Desarrollo</h2>
-          <p className="text-muted-foreground max-w-md">
-            El Channel Manager permitirá conectar con Booking.com, Airbnb, Expedia y otros canales de distribución para gestionar inventario y tarifas centralizadamente.
-          </p>
-        </div>
-      </Card>
+      <ChannelStats />
+
+      <ChannelsList />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <InventorySync />
+        <RecentBookings />
+      </div>
     </div>
   );
 }
