@@ -2,6 +2,8 @@ import AnalyticsMetrics from "@/components/analytics/AnalyticsMetrics";
 import OccupancyChart from "@/components/analytics/OccupancyChart";
 import RevenueChart from "@/components/analytics/RevenueChart";
 import ChannelDistribution from "@/components/analytics/ChannelDistribution";
+import RevenueByChannel from "@/components/analytics/RevenueByChannel";
+import RevenueByRoomType from "@/components/analytics/RevenueByRoomType";
 
 export default function Analytics() {
   return (
@@ -21,6 +23,11 @@ export default function Analytics() {
       </div>
 
       <ChannelDistribution />
+
+      {/* Reportes avanzados de revenue */}
+      <RevenueByChannel />
+      
+      <RevenueByRoomType />
     </div>
   );
 }
