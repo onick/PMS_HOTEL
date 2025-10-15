@@ -56,7 +56,7 @@ export default function PermissionsManager() {
     );
   };
 
-  const roles = ["RECEPTION", "HOUSEKEEPING", "MANAGER", "HOTEL_OWNER", "SUPER_ADMIN"];
+  const roles = ["RECEPTION", "HOUSEKEEPING", "SALES", "MANAGER", "HOTEL_OWNER", "SUPER_ADMIN"];
 
   const moduleIcons: Record<string, any> = {
     reservations: "📅",
@@ -159,27 +159,39 @@ export default function PermissionsManager() {
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="p-4 rounded-lg border">
-              <h4 className="font-semibold mb-2">RECEPTION (Recepción)</h4>
+              <h4 className="font-semibold mb-2">RECEPTION (Recepcionista)</h4>
               <p className="text-sm text-muted-foreground">
-                Gestión de reservas y check-in/check-out. Acceso a datos básicos de huéspedes.
+                Gestiona check-in/check-out de huéspedes, asigna habitaciones, registra pagos y visualiza reservas.
               </p>
             </div>
             <div className="p-4 rounded-lg border">
-              <h4 className="font-semibold mb-2">HOUSEKEEPING (Housekeeping)</h4>
+              <h4 className="font-semibold mb-2">HOUSEKEEPING (Limpieza)</h4>
               <p className="text-sm text-muted-foreground">
-                Control de limpieza, incidencias y mantenimiento. Sin acceso a datos financieros.
+                Ve y actualiza el estado de limpieza y mantenimiento de habitaciones, recibe notificaciones de tareas pendientes.
               </p>
             </div>
             <div className="p-4 rounded-lg border">
-              <h4 className="font-semibold mb-2">MANAGER (Manager)</h4>
+              <h4 className="font-semibold mb-2">SALES (Ventas)</h4>
               <p className="text-sm text-muted-foreground">
-                Acceso completo a operaciones. Puede ver auditorías y reportes.
+                Gestiona reservas, tarifas, ofertas y canales de venta. Acceso a CRM para seguimiento de clientes.
+              </p>
+            </div>
+            <div className="p-4 rounded-lg border">
+              <h4 className="font-semibold mb-2">MANAGER (Supervisor/Gerente)</h4>
+              <p className="text-sm text-muted-foreground">
+                Visualiza reportes avanzados, estadísticas de ocupación, ingresos y puede aprobar o modificar operaciones clave.
               </p>
             </div>
             <div className="p-4 rounded-lg border">
               <h4 className="font-semibold mb-2">HOTEL_OWNER (Propietario)</h4>
               <p className="text-sm text-muted-foreground">
-                Acceso total al hotel. Gestión de usuarios y configuración.
+                Acceso total al hotel. Gestión de usuarios, configuración y permisos. Control completo del sistema.
+              </p>
+            </div>
+            <div className="p-4 rounded-lg border">
+              <h4 className="font-semibold mb-2">SUPER_ADMIN (Administrador)</h4>
+              <p className="text-sm text-muted-foreground">
+                Acceso completo a todos los módulos, configura el sistema, crea y administra usuarios, supervisa operaciones globales.
               </p>
             </div>
           </div>

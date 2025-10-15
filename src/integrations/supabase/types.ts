@@ -1228,9 +1228,24 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      user_roles_with_profiles: {
+        Row: {
+          created_at: string | null
+          full_name: string | null
+          hotel_id: string | null
+          id: string | null
+          phone: string | null
+          role: Database["public"]["Enums"]["app_role"] | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
+      get_user_role: {
+        Args: { _hotel_id: string; _user_id: string }
+        Returns: Database["public"]["Enums"]["app_role"]
+      }
       has_hotel_access: {
         Args: { _hotel_id: string; _user_id: string }
         Returns: boolean
@@ -1290,6 +1305,7 @@ export type Database = {
         | "MANAGER"
         | "RECEPTION"
         | "HOUSEKEEPING"
+        | "SALES"
       reservation_status:
         | "PENDING_PAYMENT"
         | "CONFIRMED"
@@ -1431,6 +1447,7 @@ export const Constants = {
         "MANAGER",
         "RECEPTION",
         "HOUSEKEEPING",
+        "SALES",
       ],
       reservation_status: [
         "PENDING_PAYMENT",

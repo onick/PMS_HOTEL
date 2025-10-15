@@ -3,9 +3,13 @@ import AuditLogs from "@/components/security/AuditLogs";
 import DataAccessLogs from "@/components/security/DataAccessLogs";
 import PermissionsManager from "@/components/security/PermissionsManager";
 import GDPRRequests from "@/components/security/GDPRRequests";
-import { Shield, FileText, Lock, UserCheck } from "lucide-react";
+import UserManagement from "@/components/security/UserManagement";
+import { Shield, FileText, Lock, UserCheck, Users } from "lucide-react";
+import { useOutletContext } from "react-router-dom";
 
 export default function Security() {
+  const { hotel } = useOutletContext<{ hotel: { id: string } }>();
+
   return (
     <div className="space-y-6">
       <div>
@@ -18,8 +22,16 @@ export default function Security() {
         </p>
       </div>
 
-      <Tabs defaultValue="audit" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-4">
+      <Tabs defaultValue="users" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-5">
+          <TabsTrigger value="users" className="flex items-center gap-2">
+            <Users className="h-4 w-4" />
+            Usuarios
+          </TabsTrigger>
+          <TabsTrigger value="permissions" className="flex items-center gap-2">
+            <Lock className="h-4 w-4" />
+            Permisos
+          </TabsTrigger>
           <TabsTrigger value="audit" className="flex items-center gap-2">
             <FileText className="h-4 w-4" />
             Auditoría
@@ -28,15 +40,19 @@ export default function Security() {
             <UserCheck className="h-4 w-4" />
             Acceso a Datos
           </TabsTrigger>
-          <TabsTrigger value="permissions" className="flex items-center gap-2">
-            <Lock className="h-4 w-4" />
-            Permisos
-          </TabsTrigger>
           <TabsTrigger value="gdpr" className="flex items-center gap-2">
             <Shield className="h-4 w-4" />
             RGPD
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="users" className="space-y-4">
+          <UserManagement hotelId={hotel.id} />
+        </TabsContent>
+
+        <TabsContent value="permissions" className="space-y-4">
+          <PermissionsManager />
+        </TabsContent>
 
         <TabsContent value="audit" className="space-y-4">
           <AuditLogs />
@@ -44,10 +60,6 @@ export default function Security() {
 
         <TabsContent value="access" className="space-y-4">
           <DataAccessLogs />
-        </TabsContent>
-
-        <TabsContent value="permissions" className="space-y-4">
-          <PermissionsManager />
         </TabsContent>
 
         <TabsContent value="gdpr" className="space-y-4">
