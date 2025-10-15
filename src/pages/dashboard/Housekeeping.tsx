@@ -1,5 +1,7 @@
-import { Card } from "@/components/ui/card";
-import { BedDouble } from "lucide-react";
+import DailyStats from "@/components/housekeeping/DailyStats";
+import RoomsByStatus from "@/components/housekeeping/RoomsByStatus";
+import TodayCheckouts from "@/components/housekeeping/TodayCheckouts";
+import CleaningPriority from "@/components/housekeeping/CleaningPriority";
 
 export default function Housekeeping() {
   return (
@@ -11,17 +13,14 @@ export default function Housekeeping() {
         </p>
       </div>
 
-      <Card className="p-8 text-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="bg-housekeeping/10 p-4 rounded-full">
-            <BedDouble className="h-12 w-12 text-housekeeping" />
-          </div>
-          <h2 className="text-xl font-semibold">Módulo en Desarrollo</h2>
-          <p className="text-muted-foreground max-w-md">
-            El módulo de Housekeeping permitirá gestionar tareas de limpieza, asignaciones de camareras y estado de habitaciones.
-          </p>
-        </div>
-      </Card>
+      <DailyStats />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <TodayCheckouts />
+        <CleaningPriority />
+      </div>
+
+      <RoomsByStatus />
     </div>
   );
 }
