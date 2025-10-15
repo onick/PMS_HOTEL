@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import PaymentMethods from "./PaymentMethods";
+import InvoiceActions from "./InvoiceActions";
 import {
   Dialog,
   DialogContent,
@@ -198,22 +200,19 @@ export default function FolioDetails({ folio, open, onClose }: FolioDetailsProps
         </div>
 
         {/* Botones de acción */}
-        <div className="flex gap-2">
-          <Button
-            onClick={() => setShowAddCharge(true)}
-            variant="outline"
-            className="flex-1"
-          >
-            <Plus className="h-4 w-4 mr-2" />
-            Agregar Cargo
-          </Button>
-          <Button
-            onClick={() => setShowPayment(true)}
-            className="flex-1 bg-billing hover:bg-billing/90"
-          >
-            <CreditCard className="h-4 w-4 mr-2" />
-            Registrar Pago
-          </Button>
+        <div className="space-y-3">
+          <div className="flex gap-2">
+            <Button
+              onClick={() => setShowAddCharge(true)}
+              variant="outline"
+              className="flex-1"
+            >
+              <Plus className="h-4 w-4 mr-2" />
+              Agregar Cargo
+            </Button>
+          </div>
+          
+          <InvoiceActions folio={folio} charges={charges || []} />
         </div>
 
         {/* Formulario agregar cargo */}
@@ -259,42 +258,9 @@ export default function FolioDetails({ folio, open, onClose }: FolioDetailsProps
           </div>
         )}
 
-        {/* Formulario registrar pago */}
-        {showPayment && (
-          <div className="space-y-3 p-4 border rounded-lg bg-success/5">
-            <h4 className="font-semibold">Registrar Pago</h4>
-            <div>
-              <Label>Monto ({folio.currency})</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={paymentAmount}
-                onChange={(e) => setPaymentAmount(e.target.value)}
-                placeholder="0.00"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                Balance pendiente: ${balance.toFixed(2)}
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                onClick={handleRegisterPayment}
-                disabled={registerPaymentMutation.isPending}
-                className="bg-success hover:bg-success/90"
-              >
-                Confirmar Pago
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setShowPayment(false);
-                  setPaymentAmount("");
-                }}
-              >
-                Cancelar
-              </Button>
-            </div>
-          </div>
+        {/* Métodos de pago modernos */}
+        {!showAddCharge && balance > 0 && (
+          <PaymentMethods folio={folio} onPaymentComplete={onClose} />
         )}
 
         <Separator />
