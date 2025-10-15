@@ -8,9 +8,14 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { AlertCircle, CheckCircle2, Clock, Plus } from "lucide-react";
+import { AlertCircle, CheckCircle2, Clock, Plus, User, History } from "lucide-react";
 import { useState } from "react";
 import { toast } from "@/hooks/use-toast";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 
 interface Incident {
   id: string;
@@ -22,7 +27,10 @@ interface Incident {
   created_at: string;
   resolved_at?: string;
   room_id?: string;
+  assigned_to?: string;
   rooms?: { room_number: string };
+  assigned_user?: { full_name: string };
+  reporter?: { full_name: string };
 }
 
 const priorityConfig = {
@@ -41,12 +49,46 @@ const statusConfig = {
 export default function IncidentReports() {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [filterView, setFilterView] = useState<"all" | "mine" | "unassigned">("all");
   const [formData, setFormData] = useState({
     title: "",
     description: "",
     priority: "MEDIUM",
     category: "MAINTENANCE",
     room_id: "",
+    assigned_to: "",
+  });
+
+  // Obtener usuarios del hotel para asignación
+  const { data: hotelUsers } = useQuery({
+    queryKey: ["hotel-users"],
+    queryFn: async () => {
+      const { data: userRoles } = await supabase
+        .from("user_roles")
+        .select("hotel_id")
+        .eq("user_id", (await supabase.auth.getUser()).data.user?.id)
+        .limit(1)
+        .single();
+
+      if (!userRoles) throw new Error("No hotel found");
+
+      const { data, error } = await supabase
+        .from("user_roles")
+        .select(`
+          user_id,
+          profiles:user_id (
+            id,
+            full_name
+          )
+        `)
+        .eq("hotel_id", userRoles.hotel_id);
+
+      if (error) throw error;
+      return data?.map((ur: any) => ({
+        id: ur.user_id,
+        full_name: ur.profiles?.full_name || "Usuario sin nombre"
+      })) || [];
+    },
   });
 
   const { data: rooms } = useQuery({
@@ -86,7 +128,12 @@ export default function IncidentReports() {
 
       const { data, error } = await supabase
         .from("incidents")
-        .select("*, rooms(room_number)")
+        .select(`
+          *,
+          rooms(room_number),
+          assigned_user:assigned_to(full_name),
+          reporter:reported_by(full_name)
+        `)
         .eq("hotel_id", userRoles.hotel_id)
         .order("created_at", { ascending: false });
 
@@ -114,6 +161,7 @@ export default function IncidentReports() {
         hotel_id: userRoles.hotel_id,
         reported_by: user.id,
         room_id: data.room_id || null,
+        assigned_to: data.assigned_to || null,
       });
 
       if (error) throw error;
@@ -127,8 +175,24 @@ export default function IncidentReports() {
         priority: "MEDIUM",
         category: "MAINTENANCE",
         room_id: "",
+        assigned_to: "",
       });
       toast({ title: "Incidencia reportada correctamente" });
+    },
+  });
+
+  const assignMutation = useMutation({
+    mutationFn: async ({ id, assigned_to }: { id: string; assigned_to: string | null }) => {
+      const { error } = await supabase
+        .from("incidents")
+        .update({ assigned_to })
+        .eq("id", id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["incidents"] });
+      toast({ title: "Incidencia asignada correctamente" });
     },
   });
 
@@ -152,13 +216,32 @@ export default function IncidentReports() {
     },
   });
 
-  const openIncidents = incidents?.filter((i) => i.status !== "RESOLVED") || [];
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
+  // Obtener ID del usuario actual
+  useState(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      setCurrentUserId(data.user?.id || null);
+    });
+  });
+  
+  const filteredIncidents = incidents?.filter((i) => {
+    if (filterView === "mine") {
+      return i.assigned_to === currentUserId;
+    }
+    if (filterView === "unassigned") {
+      return !i.assigned_to;
+    }
+    return true;
+  }) || [];
+
+  const openIncidents = filteredIncidents?.filter((i) => i.status !== "RESOLVED") || [];
   const urgentIncidents = openIncidents.filter((i) => i.priority === "URGENT" || i.priority === "HIGH");
 
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-4">
           <CardTitle className="flex items-center gap-2">
             <AlertCircle className="h-5 w-5" />
             Reporte de Incidencias
@@ -252,6 +335,25 @@ export default function IncidentReports() {
                     </SelectContent>
                   </Select>
                 </div>
+                <div>
+                  <Label>Asignar a (opcional)</Label>
+                  <Select
+                    value={formData.assigned_to || "none"}
+                    onValueChange={(value) => setFormData({ ...formData, assigned_to: value === "none" ? "" : value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar responsable" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin asignar</SelectItem>
+                      {hotelUsers?.map((user: any) => (
+                        <SelectItem key={user.id} value={user.id}>
+                          {user.full_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
                 <Button
                   onClick={() => createMutation.mutate(formData)}
                   disabled={createMutation.isPending || !formData.title || !formData.description}
@@ -263,11 +365,36 @@ export default function IncidentReports() {
             </DialogContent>
           </Dialog>
         </div>
+        
+        {/* Filtros de vista */}
+        <div className="flex gap-2 mt-4">
+          <Button
+            variant={filterView === "all" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setFilterView("all")}
+          >
+            Todas ({incidents?.length || 0})
+          </Button>
+          <Button
+            variant={filterView === "mine" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setFilterView("mine")}
+          >
+            Mis incidencias
+          </Button>
+          <Button
+            variant={filterView === "unassigned" ? "default" : "outline"}
+            size="sm"
+            onClick={() => setFilterView("unassigned")}
+          >
+            Sin asignar ({incidents?.filter(i => !i.assigned_to).length || 0})
+          </Button>
+        </div>
       </CardHeader>
       <CardContent>
         {isLoading ? (
           <div className="text-center py-4 text-muted-foreground">Cargando...</div>
-        ) : incidents?.length === 0 ? (
+        ) : filteredIncidents?.length === 0 ? (
           <div className="text-center py-8 space-y-4">
             <div className="flex justify-center">
               <div className="p-3 rounded-full bg-success/10">
@@ -283,7 +410,7 @@ export default function IncidentReports() {
           </div>
         ) : (
           <div className="space-y-3">
-            {incidents?.map((incident) => {
+            {filteredIncidents?.map((incident) => {
               const StatusIcon = statusConfig[incident.status].icon;
               return (
                 <div
@@ -305,13 +432,48 @@ export default function IncidentReports() {
                         <span>{incident.category}</span>
                         {incident.rooms && <span>• Hab. {incident.rooms.room_number}</span>}
                         <span>• {new Date(incident.created_at).toLocaleDateString()}</span>
+                        {incident.reporter && (
+                          <span>• Reportó: {incident.reporter.full_name}</span>
+                        )}
                       </div>
+                      {incident.assigned_to && (
+                        <div className="flex items-center gap-1 text-xs mt-1">
+                          <User className="h-3 w-3" />
+                          <span className="font-medium">
+                            Asignado: {incident.assigned_user?.full_name || "Usuario"}
+                          </span>
+                        </div>
+                      )}
                     </div>
                     <div className="flex flex-col items-end gap-2">
                       <div className={`flex items-center gap-1 ${statusConfig[incident.status].color}`}>
                         <StatusIcon className="h-4 w-4" />
                         <span className="text-sm">{statusConfig[incident.status].label}</span>
                       </div>
+
+                      {/* Asignación */}
+                      {!incident.assigned_to && incident.status !== "RESOLVED" && (
+                        <Select
+                          value="unassigned"
+                          onValueChange={(value) =>
+                            assignMutation.mutate({ id: incident.id, assigned_to: value === "unassigned" ? null : value })
+                          }
+                        >
+                          <SelectTrigger className="w-[140px] h-8">
+                            <SelectValue placeholder="Asignar a..." />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="unassigned">Sin asignar</SelectItem>
+                            {hotelUsers?.map((user: any) => (
+                              <SelectItem key={user.id} value={user.id}>
+                                {user.full_name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
+
+                      {/* Cambio de estado */}
                       {incident.status !== "RESOLVED" && (
                         <Select
                           value={incident.status}

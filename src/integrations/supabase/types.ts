@@ -351,8 +351,60 @@ export type Database = {
           },
         ]
       }
+      incident_history: {
+        Row: {
+          action: string
+          comment: string | null
+          created_at: string
+          hotel_id: string
+          id: string
+          incident_id: string
+          new_value: Json | null
+          old_value: Json | null
+          user_id: string
+        }
+        Insert: {
+          action: string
+          comment?: string | null
+          created_at?: string
+          hotel_id: string
+          id?: string
+          incident_id: string
+          new_value?: Json | null
+          old_value?: Json | null
+          user_id: string
+        }
+        Update: {
+          action?: string
+          comment?: string | null
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          incident_id?: string
+          new_value?: Json | null
+          old_value?: Json | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incident_history_hotel_id_fkey"
+            columns: ["hotel_id"]
+            isOneToOne: false
+            referencedRelation: "hotels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incident_history_incident_id_fkey"
+            columns: ["incident_id"]
+            isOneToOne: false
+            referencedRelation: "incidents"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       incidents: {
         Row: {
+          assigned_to: string | null
           category: string
           created_at: string | null
           description: string
@@ -367,6 +419,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          assigned_to?: string | null
           category?: string
           created_at?: string | null
           description: string
@@ -381,6 +434,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          assigned_to?: string | null
           category?: string
           created_at?: string | null
           description?: string
