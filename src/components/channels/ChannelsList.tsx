@@ -8,14 +8,14 @@ const channels = [
     id: "booking",
     name: "Booking.com",
     logo: "🏨",
-    status: "connected",
+    status: "disconnected",
     color: "bg-blue-500",
   },
   {
     id: "airbnb",
     name: "Airbnb",
     logo: "🏠",
-    status: "connected",
+    status: "disconnected",
     color: "bg-pink-500",
   },
   {
@@ -92,7 +92,6 @@ export default function ChannelsList() {
                   variant={isConnected ? "outline" : "default"}
                   size="sm"
                   className="w-full"
-                  disabled={isConnected}
                 >
                   {isConnected ? "Configurar" : "Conectar"}
                 </Button>
