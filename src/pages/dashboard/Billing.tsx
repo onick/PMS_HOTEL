@@ -1,7 +1,12 @@
-import { Card } from "@/components/ui/card";
-import { CreditCard } from "lucide-react";
+import { useState } from "react";
+import BillingStats from "@/components/billing/BillingStats";
+import ActiveFolios from "@/components/billing/ActiveFolios";
+import FolioDetails from "@/components/billing/FolioDetails";
+import RecentTransactions from "@/components/billing/RecentTransactions";
 
 export default function Billing() {
+  const [selectedFolio, setSelectedFolio] = useState<any>(null);
+
   return (
     <div className="space-y-6">
       <div>
@@ -11,17 +16,18 @@ export default function Billing() {
         </p>
       </div>
 
-      <Card className="p-8 text-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="bg-billing/10 p-4 rounded-full">
-            <CreditCard className="h-12 w-12 text-billing" />
-          </div>
-          <h2 className="text-xl font-semibold">Módulo en Desarrollo</h2>
-          <p className="text-muted-foreground max-w-md">
-            El módulo de Facturación incluirá gestión de folios, cargos adicionales, métodos de pago y generación de facturas.
-          </p>
-        </div>
-      </Card>
+      <BillingStats />
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <ActiveFolios onSelectFolio={setSelectedFolio} />
+        <RecentTransactions />
+      </div>
+
+      <FolioDetails
+        folio={selectedFolio}
+        open={!!selectedFolio}
+        onClose={() => setSelectedFolio(null)}
+      />
     </div>
   );
 }
