@@ -14,6 +14,7 @@ import Billing from "./pages/dashboard/Billing";
 import Channels from "./pages/dashboard/Channels";
 import CRM from "./pages/dashboard/CRM";
 import Analytics from "./pages/dashboard/Analytics";
+import Security from "./pages/dashboard/Security";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -36,6 +37,7 @@ const App = () => (
             <Route path="channels" element={<Channels />} />
             <Route path="crm" element={<CRM />} />
             <Route path="analytics" element={<Analytics />} />
+            <Route path="security" element={<Security />} />
           </Route>
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />

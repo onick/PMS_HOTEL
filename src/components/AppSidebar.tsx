@@ -10,6 +10,7 @@ import {
   Settings,
   LogOut,
   Hotel,
+  Shield,
 } from "lucide-react";
 import {
   Sidebar,
@@ -79,6 +80,11 @@ const mainItems = [
 ];
 
 const settingsItems = [
+  { 
+    title: "Seguridad", 
+    url: "/dashboard/security", 
+    icon: Shield,
+  },
   { 
     title: "Configuración", 
     url: "/dashboard/settings", 
