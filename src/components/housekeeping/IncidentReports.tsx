@@ -236,14 +236,14 @@ export default function IncidentReports() {
                 <div>
                   <Label>Habitación (opcional)</Label>
                   <Select
-                    value={formData.room_id}
-                    onValueChange={(value) => setFormData({ ...formData, room_id: value })}
+                    value={formData.room_id || "none"}
+                    onValueChange={(value) => setFormData({ ...formData, room_id: value === "none" ? "" : value })}
                   >
                     <SelectTrigger>
                       <SelectValue placeholder="Seleccionar habitación" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Ninguna</SelectItem>
+                      <SelectItem value="none">Ninguna</SelectItem>
                       {rooms?.map((room) => (
                         <SelectItem key={room.id} value={room.id}>
                           Habitación {room.room_number}
