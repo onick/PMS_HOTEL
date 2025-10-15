@@ -26,16 +26,37 @@ const Dashboard = () => {
 
     setUser(session.user);
 
-    // Obtener roles del usuario
-    const { data: userRoles } = await supabase
+    // Primero obtenemos el rol del usuario
+    const { data: userRole, error: roleError } = await supabase
       .from("user_roles")
-      .select("hotel_id, hotels(*)")
+      .select("hotel_id")
       .eq("user_id", session.user.id)
       .limit(1)
       .single();
 
-    if (userRoles?.hotels) {
-      setHotel(userRoles.hotels);
+    if (roleError) {
+      console.error("Error fetching user role:", roleError);
+      setLoading(false);
+      return;
+    }
+
+    if (!userRole) {
+      setLoading(false);
+      return;
+    }
+
+    // Luego obtenemos los datos del hotel
+    const { data: hotelData, error: hotelError } = await supabase
+      .from("hotels")
+      .select("*")
+      .eq("id", userRole.hotel_id)
+      .single();
+
+    if (hotelError) {
+      console.error("Error fetching hotel:", hotelError);
+      toast.error("Error cargando datos del hotel");
+    } else {
+      setHotel(hotelData);
     }
 
     setLoading(false);
