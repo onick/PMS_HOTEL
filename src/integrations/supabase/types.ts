@@ -14,6 +14,53 @@ export type Database = {
   }
   public: {
     Tables: {
+      channel_connections: {
+        Row: {
+          channel_id: string
+          channel_name: string
+          created_at: string | null
+          credentials: Json | null
+          hotel_id: string
+          id: string
+          last_sync_at: string | null
+          settings: Json | null
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          channel_id: string
+          channel_name: string
+          created_at?: string | null
+          credentials?: Json | null
+          hotel_id: string
+          id?: string
+          last_sync_at?: string | null
+          settings?: Json | null
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          channel_id?: string
+          channel_name?: string
+          created_at?: string | null
+          credentials?: Json | null
+          hotel_id?: string
+          id?: string
+          last_sync_at?: string | null
+          settings?: Json | null
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "channel_connections_hotel_id_fkey"
+            columns: ["hotel_id"]
+            isOneToOne: false
+            referencedRelation: "hotels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       folio_charges: {
         Row: {
           amount_cents: number

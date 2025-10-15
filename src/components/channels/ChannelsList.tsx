@@ -1,7 +1,11 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Globe, Wifi, WifiOff } from "lucide-react";
+import ConnectChannelDialog from "./ConnectChannelDialog";
 
 const channels = [
   {
@@ -49,6 +53,33 @@ const channels = [
 ];
 
 export default function ChannelsList() {
+  const [selectedChannel, setSelectedChannel] = useState<any>(null);
+
+  const { data: connections } = useQuery({
+    queryKey: ["channel-connections"],
+    queryFn: async () => {
+      const { data: userRoles } = await supabase
+        .from("user_roles")
+        .select("hotel_id")
+        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
+        .single();
+
+      if (!userRoles) return [];
+
+      const { data, error } = await supabase
+        .from("channel_connections")
+        .select("*")
+        .eq("hotel_id", userRoles.hotel_id);
+
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const getChannelStatus = (channelId: string) => {
+    const connection = connections?.find((c: any) => c.channel_id === channelId);
+    return connection?.status || "disconnected";
+  };
   return (
     <Card>
       <CardHeader>
@@ -60,7 +91,7 @@ export default function ChannelsList() {
       <CardContent>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {channels.map((channel) => {
-            const isConnected = channel.status === "connected";
+            const isConnected = getChannelStatus(channel.id) === "connected";
             
             return (
               <div
@@ -92,6 +123,7 @@ export default function ChannelsList() {
                   variant={isConnected ? "outline" : "default"}
                   size="sm"
                   className="w-full"
+                  onClick={() => setSelectedChannel(channel)}
                 >
                   {isConnected ? "Configurar" : "Conectar"}
                 </Button>
@@ -99,6 +131,12 @@ export default function ChannelsList() {
             );
           })}
         </div>
+
+        <ConnectChannelDialog
+          channel={selectedChannel}
+          open={!!selectedChannel}
+          onClose={() => setSelectedChannel(null)}
+        />
       </CardContent>
     </Card>
   );
