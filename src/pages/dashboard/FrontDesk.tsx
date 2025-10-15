@@ -1,5 +1,7 @@
-import { Card } from "@/components/ui/card";
-import { Hotel } from "lucide-react";
+import TodayArrivals from "@/components/front-desk/TodayArrivals";
+import TodayDepartures from "@/components/front-desk/TodayDepartures";
+import InHouseGuests from "@/components/front-desk/InHouseGuests";
+import RoomStatus from "@/components/front-desk/RoomStatus";
 
 export default function FrontDesk() {
   return (
@@ -11,17 +13,15 @@ export default function FrontDesk() {
         </p>
       </div>
 
-      <Card className="p-8 text-center">
-        <div className="flex flex-col items-center gap-4">
-          <div className="bg-front-desk/10 p-4 rounded-full">
-            <Hotel className="h-12 w-12 text-front-desk" />
-          </div>
-          <h2 className="text-xl font-semibold">Módulo en Desarrollo</h2>
-          <p className="text-muted-foreground max-w-md">
-            El módulo de Front Desk estará disponible próximamente con funcionalidades de check-in/out, asignación de habitaciones y registro de huéspedes.
-          </p>
-        </div>
-      </Card>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <TodayArrivals />
+        <TodayDepartures />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <InHouseGuests />
+        <RoomStatus />
+      </div>
     </div>
   );
 }
