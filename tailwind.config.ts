@@ -13,6 +13,9 @@ export default {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ['Inter', 'DM Sans', 'Helvetica Neue', 'Arial', 'sans-serif'],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
@@ -22,6 +25,7 @@ export default {
         primary: {
           DEFAULT: "hsl(var(--primary))",
           foreground: "hsl(var(--primary-foreground))",
+          hover: "hsl(var(--primary-hover))",
         },
         secondary: {
           DEFAULT: "hsl(var(--secondary))",
@@ -57,11 +61,34 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        success: "hsl(var(--success))",
+        warning: "hsl(var(--warning))",
+        // Module-specific colors
+        reservations: "hsl(var(--reservations))",
+        'front-desk': "hsl(var(--front-desk))",
+        housekeeping: "hsl(var(--housekeeping))",
+        billing: "hsl(var(--billing))",
+        'channel-manager': "hsl(var(--channel-manager))",
+        crm: "hsl(var(--crm))",
+        analytics: "hsl(var(--analytics))",
+      },
+      backgroundImage: {
+        'gradient-ocean': 'var(--gradient-ocean)',
+        'gradient-sunset': 'var(--gradient-sunset)',
+        'gradient-hero': 'var(--gradient-hero)',
+        'gradient-dark-ocean': 'var(--gradient-dark-ocean)',
+      },
+      boxShadow: {
+        'soft': 'var(--shadow-soft)',
+        'glow': 'var(--shadow-glow)',
+        'primary': 'var(--shadow-primary)',
       },
       borderRadius: {
         lg: "var(--radius)",
         md: "calc(var(--radius) - 2px)",
         sm: "calc(var(--radius) - 4px)",
+        xl: "1rem",
+        '2xl': "1.25rem",
       },
       keyframes: {
         "accordion-down": {
