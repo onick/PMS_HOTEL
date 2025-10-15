@@ -2,7 +2,9 @@ import { useOutletContext } from "react-router-dom";
 import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { TrendingUp, Calendar, CheckCircle, Clock } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ReservationsList from "@/components/reservations/ReservationsList";
+import ReservationsCalendar from "@/components/reservations/ReservationsCalendar";
 import NewReservationDialog from "@/components/reservations/NewReservationDialog";
 import ReservationFilters, { ReservationFilters as Filters } from "@/components/reservations/ReservationFilters";
 
@@ -92,16 +94,30 @@ export default function Reservations() {
         </Card>
       </div>
 
-      {/* Filtros */}
-      <ReservationFilters onFilterChange={handleFilterChange} />
+      {/* Tabs para vistas */}
+      <Tabs defaultValue="list" className="space-y-4">
+        <TabsList>
+          <TabsTrigger value="list">Vista de Lista</TabsTrigger>
+          <TabsTrigger value="calendar">Vista de Calendario</TabsTrigger>
+        </TabsList>
 
-      {/* Lista de reservas */}
-      <ReservationsList 
-        key={refreshKey}
-        hotelId={hotel.id} 
-        filters={filters}
-        onUpdate={handleReservationUpdate}
-      />
+        <TabsContent value="list" className="space-y-4">
+          <ReservationFilters onFilterChange={handleFilterChange} />
+          <ReservationsList 
+            key={refreshKey}
+            hotelId={hotel.id} 
+            filters={filters}
+            onUpdate={handleReservationUpdate}
+          />
+        </TabsContent>
+
+        <TabsContent value="calendar">
+          <ReservationsCalendar 
+            hotelId={hotel.id}
+            onUpdate={handleReservationUpdate}
+          />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
