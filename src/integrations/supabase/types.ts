@@ -61,6 +61,45 @@ export type Database = {
           },
         ]
       }
+      cleaning_checklists: {
+        Row: {
+          assigned_to: string | null
+          completed_at: string | null
+          created_at: string | null
+          hotel_id: string
+          id: string
+          items: Json
+          notes: string | null
+          room_id: string
+          started_at: string | null
+          status: string
+        }
+        Insert: {
+          assigned_to?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          hotel_id: string
+          id?: string
+          items?: Json
+          notes?: string | null
+          room_id: string
+          started_at?: string | null
+          status?: string
+        }
+        Update: {
+          assigned_to?: string | null
+          completed_at?: string | null
+          created_at?: string | null
+          hotel_id?: string
+          id?: string
+          items?: Json
+          notes?: string | null
+          room_id?: string
+          started_at?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
       folio_charges: {
         Row: {
           amount_cents: number
@@ -312,6 +351,59 @@ export type Database = {
           },
         ]
       }
+      incidents: {
+        Row: {
+          category: string
+          created_at: string | null
+          description: string
+          hotel_id: string
+          id: string
+          priority: string
+          reported_by: string
+          resolved_at: string | null
+          room_id: string | null
+          status: string
+          title: string
+          updated_at: string | null
+        }
+        Insert: {
+          category?: string
+          created_at?: string | null
+          description: string
+          hotel_id: string
+          id?: string
+          priority?: string
+          reported_by: string
+          resolved_at?: string | null
+          room_id?: string | null
+          status?: string
+          title: string
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          description?: string
+          hotel_id?: string
+          id?: string
+          priority?: string
+          reported_by?: string
+          resolved_at?: string | null
+          room_id?: string | null
+          status?: string
+          title?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incidents_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       inventory_by_day: {
         Row: {
           created_at: string | null
@@ -356,6 +448,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      materials: {
+        Row: {
+          category: string
+          created_at: string | null
+          hotel_id: string
+          id: string
+          min_quantity: number
+          name: string
+          quantity: number
+          unit: string
+          updated_at: string | null
+        }
+        Insert: {
+          category?: string
+          created_at?: string | null
+          hotel_id: string
+          id?: string
+          min_quantity?: number
+          name: string
+          quantity?: number
+          unit?: string
+          updated_at?: string | null
+        }
+        Update: {
+          category?: string
+          created_at?: string | null
+          hotel_id?: string
+          id?: string
+          min_quantity?: number
+          name?: string
+          quantity?: number
+          unit?: string
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       profiles: {
         Row: {

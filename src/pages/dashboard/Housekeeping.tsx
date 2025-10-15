@@ -2,6 +2,9 @@ import DailyStats from "@/components/housekeeping/DailyStats";
 import RoomsByStatus from "@/components/housekeeping/RoomsByStatus";
 import TodayCheckouts from "@/components/housekeeping/TodayCheckouts";
 import CleaningPriority from "@/components/housekeeping/CleaningPriority";
+import MaterialsInventory from "@/components/housekeeping/MaterialsInventory";
+import RoomChecklist from "@/components/housekeeping/RoomChecklist";
+import IncidentReports from "@/components/housekeeping/IncidentReports";
 
 export default function Housekeeping() {
   return (
@@ -19,6 +22,13 @@ export default function Housekeeping() {
         <TodayCheckouts />
         <CleaningPriority />
       </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <RoomChecklist />
+        <MaterialsInventory />
+      </div>
+
+      <IncidentReports />
 
       <RoomsByStatus />
     </div>
