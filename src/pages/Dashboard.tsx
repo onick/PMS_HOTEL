@@ -4,6 +4,7 @@ import { useNavigate, Outlet } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { toast } from "sonner";
 
 const Dashboard = () => {
@@ -97,6 +98,7 @@ const Dashboard = () => {
                 <h1 className="text-xl font-semibold text-foreground">{hotel.name}</h1>
                 <p className="text-sm text-muted-foreground">{hotel.city}, {hotel.country}</p>
               </div>
+              <NotificationBell hotelId={hotel.id} />
             </div>
           </header>
 

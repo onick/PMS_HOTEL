@@ -740,6 +740,56 @@ export type Database = {
         }
         Relationships: []
       }
+      notifications: {
+        Row: {
+          created_at: string
+          hotel_id: string
+          id: string
+          message: string
+          read: boolean
+          related_entity_id: string | null
+          related_entity_type: string | null
+          role: Database["public"]["Enums"]["app_role"] | null
+          title: string
+          type: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          hotel_id: string
+          id?: string
+          message: string
+          read?: boolean
+          related_entity_id?: string | null
+          related_entity_type?: string | null
+          role?: Database["public"]["Enums"]["app_role"] | null
+          title: string
+          type?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          hotel_id?: string
+          id?: string
+          message?: string
+          read?: boolean
+          related_entity_id?: string | null
+          related_entity_type?: string | null
+          role?: Database["public"]["Enums"]["app_role"] | null
+          title?: string
+          type?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "notifications_hotel_id_fkey"
+            columns: ["hotel_id"]
+            isOneToOne: false
+            referencedRelation: "hotels"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       permissions: {
         Row: {
           action: string
@@ -1242,6 +1292,19 @@ export type Database = {
       }
     }
     Functions: {
+      create_notification: {
+        Args: {
+          p_entity_id?: string
+          p_entity_type?: string
+          p_hotel_id: string
+          p_message: string
+          p_role?: Database["public"]["Enums"]["app_role"]
+          p_title: string
+          p_type?: string
+          p_user_id?: string
+        }
+        Returns: string
+      }
       get_user_role: {
         Args: { _hotel_id: string; _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
