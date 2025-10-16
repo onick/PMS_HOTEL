@@ -5,6 +5,7 @@ import { TrendingUp, Calendar, CheckCircle, Clock } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import ReservationsList from "@/components/reservations/ReservationsList";
 import ReservationsCalendar from "@/components/reservations/ReservationsCalendar";
+import ReservationsTimeline from "@/components/reservations/ReservationsTimeline";
 import NewReservationDialog from "@/components/reservations/NewReservationDialog";
 import ReservationFilters, { ReservationFilters as Filters } from "@/components/reservations/ReservationFilters";
 
@@ -95,11 +96,16 @@ export default function Reservations() {
       </div>
 
       {/* Tabs para vistas */}
-      <Tabs defaultValue="list" className="space-y-4">
+      <Tabs defaultValue="timeline" className="space-y-4">
         <TabsList>
-          <TabsTrigger value="list">Vista de Lista</TabsTrigger>
-          <TabsTrigger value="calendar">Vista de Calendario</TabsTrigger>
+          <TabsTrigger value="timeline">Timeline</TabsTrigger>
+          <TabsTrigger value="list">Lista</TabsTrigger>
+          <TabsTrigger value="calendar">Calendario</TabsTrigger>
         </TabsList>
+
+        <TabsContent value="timeline">
+          <ReservationsTimeline hotelId={hotel.id} onUpdate={handleReservationUpdate} />
+        </TabsContent>
 
         <TabsContent value="list" className="space-y-4">
           <ReservationFilters onFilterChange={handleFilterChange} />
