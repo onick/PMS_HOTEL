@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChevronLeft, ChevronRight, Users, Calendar, DollarSign } from "lucide-react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, parseISO, isSameDay } from "date-fns";
 import { es } from "date-fns/locale";
@@ -125,8 +125,7 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
   }
 
   return (
-    <TooltipProvider>
-      <Card>
+    <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Timeline de Reservas</CardTitle>
@@ -326,7 +325,6 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
           onUpdate?.();
         }}
       />
-      </Card>
-    </TooltipProvider>
+    </Card>
   );
 }
