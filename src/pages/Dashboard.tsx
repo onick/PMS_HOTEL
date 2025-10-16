@@ -108,29 +108,36 @@ const Dashboard = () => {
   }
 
   return (
-    <SidebarProvider>
+    <SidebarProvider defaultOpen={false}>
       <div className="flex min-h-screen w-full bg-background">
         <AppSidebar />
         
-        <div className="flex-1 flex flex-col">
-          {/* Header */}
-          <header className="h-16 border-b bg-card/80 backdrop-blur-sm sticky top-0 z-10 shadow-soft">
-            <div className="h-full px-6 flex items-center gap-4">
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Header - Responsive */}
+          <header className="h-14 md:h-16 border-b bg-card/80 backdrop-blur-sm sticky top-0 z-10 shadow-soft">
+            <div className="h-full px-3 md:px-6 flex items-center gap-2 md:gap-4">
               <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
-              <div className="flex-1">
-                <h1 className="text-xl font-semibold text-foreground">{hotel.name}</h1>
-                <p className="text-sm text-muted-foreground">{hotel.city}, {hotel.country}</p>
+              
+              {/* Hotel Info - Hidden on mobile, condensed on tablet */}
+              <div className="flex-1 min-w-0 hidden sm:block">
+                <h1 className="text-base md:text-xl font-semibold text-foreground truncate">
+                  {hotel.name}
+                </h1>
+                <p className="text-xs md:text-sm text-muted-foreground truncate hidden md:block">
+                  {hotel.city}, {hotel.country}
+                </p>
               </div>
               
-              <div className="flex items-center gap-3">
+              {/* Mobile: Show only icons */}
+              <div className="flex items-center gap-2 md:gap-3 ml-auto">
                 <NotificationBell hotelId={hotel.id} />
                 
                 {/* User Menu */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button variant="ghost" size="icon" className="relative h-9 w-9 rounded-full">
-                      <Avatar className="h-9 w-9">
-                        <AvatarFallback className="bg-primary text-primary-foreground">
+                    <Button variant="ghost" size="icon" className="relative h-8 w-8 md:h-9 md:w-9 rounded-full">
+                      <Avatar className="h-8 w-8 md:h-9 md:w-9">
+                        <AvatarFallback className="bg-primary text-primary-foreground text-xs md:text-sm">
                           {getUserInitials()}
                         </AvatarFallback>
                       </Avatar>
@@ -170,8 +177,8 @@ const Dashboard = () => {
             </div>
           </header>
 
-          {/* Main Content */}
-          <main className="flex-1 p-6">
+          {/* Main Content - Responsive padding */}
+          <main className="flex-1 p-3 md:p-6">
             <Outlet context={{ hotel }} />
           </main>
         </div>

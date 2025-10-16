@@ -196,4 +196,27 @@ All colors MUST be HSL.
   .transition-smooth {
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
+  
+  /* Responsive text utilities */
+  .text-responsive-xl {
+    @apply text-xl sm:text-2xl md:text-3xl;
+  }
+  
+  .text-responsive-lg {
+    @apply text-lg sm:text-xl md:text-2xl;
+  }
+  
+  /* Mobile-first containers */
+  .container-mobile {
+    @apply px-4 sm:px-6 lg:px-8;
+  }
+  
+  /* Scrollable tables for mobile */
+  .table-mobile-scroll {
+    @apply overflow-x-auto -mx-4 sm:mx-0;
+  }
+  
+  .table-mobile-scroll table {
+    @apply min-w-full;
+  }
 }
