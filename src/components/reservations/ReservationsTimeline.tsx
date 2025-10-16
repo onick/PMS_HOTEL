@@ -3,6 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChevronLeft, ChevronRight, Users, Calendar, DollarSign } from "lucide-react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, parseISO, isSameDay } from "date-fns";
 import { es } from "date-fns/locale";
@@ -165,6 +166,8 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
   };
 
   const months = Array.from({ length: 12 }, (_, i) => new Date(currentYear, i, 1));
+  const currentYearNow = new Date().getFullYear();
+  const years = Array.from({ length: 16 }, (_, i) => currentYearNow - 5 + i); // 5 años atrás, 10 hacia adelante
 
   const days = getDaysInMonth();
   const previousMonth = () => {
@@ -199,8 +202,25 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
   return (
     <Card>
       <CardHeader className="space-y-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between flex-wrap gap-4">
           <CardTitle>Timeline de Reservas</CardTitle>
+          
+          {/* Year selector */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Año:</span>
+            <Select value={currentYear.toString()} onValueChange={(value) => selectYear(parseInt(value))}>
+              <SelectTrigger className="w-[120px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {years.map((year) => (
+                  <SelectItem key={year} value={year.toString()}>
+                    {year}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
         </div>
 
         {/* Month selector */}
@@ -220,7 +240,7 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
                 onClick={() => selectMonth(month)}
                 className="min-w-[90px]"
               >
-                {format(month, "MMMM yyyy", { locale: es })}
+                {format(month, "MMMM", { locale: es })}
               </Button>
             );
           })}
