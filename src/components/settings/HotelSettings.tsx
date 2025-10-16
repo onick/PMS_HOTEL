@@ -55,7 +55,7 @@ export function HotelSettings() {
         country: hotel.country || "",
         currency: hotel.currency || "",
         timezone: hotel.timezone || "",
-        tax_rate: hotel.tax_rate?.toString() || "",
+        tax_rate: hotel.tax_rate ? (hotel.tax_rate * 100).toString() : "",
       });
     }
   }, [hotel]);
@@ -73,7 +73,7 @@ export function HotelSettings() {
           country: data.country,
           currency: data.currency,
           timezone: data.timezone,
-          tax_rate: parseFloat(data.tax_rate),
+          tax_rate: parseFloat(data.tax_rate) / 100,
         })
         .eq("id", hotel.id);
 
