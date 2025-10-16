@@ -224,27 +224,33 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
         </div>
 
         {/* Month selector */}
-        <div className="flex flex-wrap gap-2 items-center">
-          <Button variant="ghost" size="icon" onClick={previousMonth}>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={previousMonth} className="shrink-0">
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          {months.map((month) => {
-            const isCurrentMonth = 
-              month.getMonth() === currentMonth.getMonth() && 
-              month.getFullYear() === currentMonth.getFullYear();
-            return (
-              <Button
-                key={month.toISOString()}
-                variant={isCurrentMonth ? "default" : "outline"}
-                size="sm"
-                onClick={() => selectMonth(month)}
-                className="min-w-[90px]"
-              >
-                {format(month, "MMMM", { locale: es })}
-              </Button>
-            );
-          })}
-          <Button variant="ghost" size="icon" onClick={nextMonth}>
+          
+          <div className="flex-1 overflow-x-auto">
+            <div className="flex gap-2 pb-2">
+              {months.map((month) => {
+                const isCurrentMonth = 
+                  month.getMonth() === currentMonth.getMonth() && 
+                  month.getFullYear() === currentMonth.getFullYear();
+                return (
+                  <Button
+                    key={month.toISOString()}
+                    variant={isCurrentMonth ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => selectMonth(month)}
+                    className="min-w-[90px] shrink-0"
+                  >
+                    {format(month, "MMMM", { locale: es })}
+                  </Button>
+                );
+              })}
+            </div>
+          </div>
+          
+          <Button variant="ghost" size="icon" onClick={nextMonth} className="shrink-0">
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
