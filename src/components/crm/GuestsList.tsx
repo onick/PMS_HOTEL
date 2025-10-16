@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Users, Search, Eye } from "lucide-react";
+import { Users, Search, Eye, Edit } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/date-utils";
 
 interface GuestsListProps {
@@ -97,7 +98,8 @@ export default function GuestsList({ onSelectGuest }: GuestsListProps) {
                     <TableHead>Room Type</TableHead>
                     <TableHead>Allocated Room</TableHead>
                     <TableHead className="text-right">Due Amount</TableHead>
-                    <TableHead className="w-[70px]"></TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="text-right">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -124,18 +126,29 @@ export default function GuestsList({ onSelectGuest }: GuestsListProps) {
                           : "$0.00"}
                       </TableCell>
                       <TableCell>
-                        <Button 
-                          variant="ghost" 
-                          size="sm"
-                          onClick={() => onSelectGuest({
-                            id: reservation.id,
-                            name: reservation.customer?.name,
-                            email: reservation.customer?.email,
-                            phone: reservation.customer?.phone,
-                          })}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
+                        <Badge variant={
+                          reservation.status === 'CHECKED_IN' ? 'default' :
+                          reservation.status === 'CONFIRMED' ? 'secondary' :
+                          'outline'
+                        }>
+                          {reservation.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <div className="flex gap-1 justify-end">
+                          <Button 
+                            variant="ghost" 
+                            size="sm"
+                            onClick={() => onSelectGuest({
+                              id: reservation.id,
+                              name: reservation.customer?.name,
+                              email: reservation.customer?.email,
+                              phone: reservation.customer?.phone,
+                            })}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
