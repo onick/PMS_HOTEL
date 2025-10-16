@@ -15,11 +15,14 @@ interface ReservationsTimelineProps {
 
 export default function ReservationsTimeline({ hotelId, onUpdate }: ReservationsTimelineProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [currentYear, setCurrentYear] = useState(new Date().getFullYear());
   const [roomTypes, setRoomTypes] = useState<any[]>([]);
+  const [rooms, setRooms] = useState<any[]>([]);
   const [reservations, setReservations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReservation, setSelectedReservation] = useState<any>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     loadData();
@@ -30,12 +33,17 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
     const start = startOfMonth(currentMonth);
     const end = endOfMonth(currentMonth);
 
-    const [roomTypesData, reservationsData] = await Promise.all([
+    const [roomTypesData, roomsData, reservationsData] = await Promise.all([
       supabase
         .from("room_types")
         .select("*")
         .eq("hotel_id", hotelId)
         .order("name", { ascending: true }),
+      supabase
+        .from("rooms")
+        .select("*, room_types(name)")
+        .eq("hotel_id", hotelId)
+        .order("room_number", { ascending: true }),
       supabase
         .from("reservations")
         .select("*, room_types(name)")
@@ -45,7 +53,14 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
     ]);
 
     if (roomTypesData.error) console.error("Error loading room types:", roomTypesData.error);
-    else setRoomTypes(roomTypesData.data || []);
+    else {
+      setRoomTypes(roomTypesData.data || []);
+      // Expand all types by default
+      setExpandedTypes(new Set((roomTypesData.data || []).map((rt: any) => rt.id)));
+    }
+
+    if (roomsData.error) console.error("Error loading rooms:", roomsData.error);
+    else setRooms(roomsData.data || []);
 
     if (reservationsData.error) console.error("Error loading reservations:", reservationsData.error);
     else setReservations(reservationsData.data || []);
@@ -109,9 +124,67 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
     return reservations.filter(r => r.room_type_id === roomTypeId);
   };
 
+  const getRoomsForType = (roomTypeId: string) => {
+    return rooms.filter(r => r.room_type_id === roomTypeId);
+  };
+
+  const getAvailabilityForDay = (roomTypeId: string, day: Date) => {
+    const typeRooms = getRoomsForType(roomTypeId);
+    const totalRooms = typeRooms.length;
+    const dayStr = format(day, "yyyy-MM-dd");
+    
+    const reservedCount = reservations.filter(r => {
+      if (r.room_type_id !== roomTypeId) return false;
+      const checkIn = parseISO(r.check_in);
+      const checkOut = parseISO(r.check_out);
+      return checkIn <= day && checkOut > day;
+    }).length;
+
+    return {
+      total: totalRooms,
+      reserved: reservedCount,
+      available: totalRooms - reservedCount
+    };
+  };
+
+  const getAvailabilityColor = (available: number, total: number) => {
+    if (total === 0) return "bg-muted text-muted-foreground";
+    if (available === 0) return "bg-destructive text-destructive-foreground";
+    if (available <= total * 0.3) return "bg-orange-500 text-white";
+    return "bg-green-500 text-white";
+  };
+
+  const toggleRoomType = (typeId: string) => {
+    const newExpanded = new Set(expandedTypes);
+    if (newExpanded.has(typeId)) {
+      newExpanded.delete(typeId);
+    } else {
+      newExpanded.add(typeId);
+    }
+    setExpandedTypes(newExpanded);
+  };
+
+  const months = Array.from({ length: 12 }, (_, i) => new Date(currentYear, i, 1));
+  const years = Array.from({ length: 10 }, (_, i) => currentYear - 5 + i);
+
   const days = getDaysInMonth();
-  const previousMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
-  const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
+  const previousMonth = () => {
+    const newMonth = subMonths(currentMonth, 1);
+    setCurrentMonth(newMonth);
+    setCurrentYear(newMonth.getFullYear());
+  };
+  const nextMonth = () => {
+    const newMonth = addMonths(currentMonth, 1);
+    setCurrentMonth(newMonth);
+    setCurrentYear(newMonth.getFullYear());
+  };
+  const selectMonth = (month: Date) => {
+    setCurrentMonth(month);
+  };
+  const selectYear = (year: number) => {
+    setCurrentYear(year);
+    setCurrentMonth(new Date(year, currentMonth.getMonth(), 1));
+  };
 
 
   if (loading) {
@@ -126,167 +199,205 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
 
   return (
     <Card>
-      <CardHeader>
+      <CardHeader className="space-y-4">
         <div className="flex items-center justify-between">
           <CardTitle>Timeline de Reservas</CardTitle>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" onClick={previousMonth}>
-              <ChevronLeft className="h-4 w-4" />
+        </div>
+
+        {/* Year selector */}
+        <div className="flex flex-wrap gap-2">
+          {years.map((year) => (
+            <Button
+              key={year}
+              variant={year === currentYear ? "default" : "outline"}
+              size="sm"
+              onClick={() => selectYear(year)}
+              className="min-w-[60px]"
+            >
+              {year}
             </Button>
-            <div className="min-w-[180px] text-center font-semibold">
-              {format(currentMonth, "MMMM yyyy", { locale: es })}
-            </div>
-            <Button variant="outline" size="icon" onClick={nextMonth}>
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </div>
+          ))}
+        </div>
+
+        {/* Month selector */}
+        <div className="flex flex-wrap gap-2">
+          <Button variant="ghost" size="icon" onClick={previousMonth}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          {months.map((month) => {
+            const isCurrentMonth = 
+              month.getMonth() === currentMonth.getMonth() && 
+              month.getFullYear() === currentMonth.getFullYear();
+            return (
+              <Button
+                key={month.toISOString()}
+                variant={isCurrentMonth ? "default" : "outline"}
+                size="sm"
+                onClick={() => selectMonth(month)}
+                className="min-w-[90px]"
+              >
+                {format(month, "MMMM", { locale: es })}
+              </Button>
+            );
+          })}
+          <Button variant="ghost" size="icon" onClick={nextMonth}>
+            <ChevronRight className="h-4 w-4" />
+          </Button>
         </div>
       </CardHeader>
       <CardContent className="overflow-x-auto">
-        <div className="min-w-[1200px]">
+        <div className="min-w-[1400px]">
           {/* Header with dates */}
-          <div className="grid gap-0 mb-4" style={{ gridTemplateColumns: `250px repeat(${days.length}, 1fr)` }}>
-            <div className="sticky left-0 bg-background z-10 p-2 border-b font-semibold">
-              Tipo de Habitación
+          <div className="grid gap-0 mb-2 sticky top-0 bg-background z-20" style={{ gridTemplateColumns: `200px repeat(${days.length}, minmax(50px, 1fr))` }}>
+            <div className="sticky left-0 bg-background z-10 p-2 border-b font-semibold text-sm">
+              Habitaciones
             </div>
             {days.map((day) => {
               const isToday = isSameDay(day, new Date());
               return (
                 <div
                   key={day.toISOString()}
-                  className={`text-center p-2 border-b text-xs ${
+                  className={`text-center p-1 border-b text-xs ${
                     isToday ? "bg-primary/10 font-bold text-primary" : ""
                   }`}
                 >
-                  <div>{format(day, "EEE", { locale: es })}</div>
-                  <div className="font-semibold">{format(day, "d")}</div>
+                  <div className="font-medium">{format(day, "EEE", { locale: es })}</div>
+                  <div className="font-bold">{format(day, "d")}</div>
                 </div>
               );
             })}
           </div>
 
-          {/* Room types and reservations */}
+          {/* Room types and rooms */}
           {roomTypes.map((roomType) => {
-            const typeReservations = getReservationsForRoomType(roomType.id);
+            const typeRooms = getRoomsForType(roomType.id);
+            const isExpanded = expandedTypes.has(roomType.id);
             
-            // Organize reservations in rows to avoid overlaps
-            const reservationRows: any[][] = [];
-            typeReservations.forEach((reservation) => {
-              const position = getReservationPosition(reservation, days);
-              if (!position) return;
-              
-              // Find a row where this reservation fits without overlap
-              let placed = false;
-              for (let row of reservationRows) {
-                const hasOverlap = row.some(r => {
-                  const rPos = getReservationPosition(r, days);
-                  if (!rPos) return false;
-                  return !(position.start + position.span <= rPos.start || position.start >= rPos.start + rPos.span);
-                });
-                
-                if (!hasOverlap) {
-                  row.push(reservation);
-                  placed = true;
-                  break;
-                }
-              }
-              
-              if (!placed) {
-                reservationRows.push([reservation]);
-              }
-            });
-
             return (
-              <div key={roomType.id} className="mb-2">
-                {reservationRows.map((row, rowIndex) => (
-                  <div
-                    key={`${roomType.id}-row-${rowIndex}`}
-                    className="grid gap-0 mb-1"
-                    style={{ gridTemplateColumns: `250px repeat(${days.length}, 1fr)` }}
+              <div key={roomType.id} className="mb-4 border rounded-lg overflow-hidden">
+                {/* Room type header with availability indicators */}
+                <div className="grid gap-0 bg-muted/50" style={{ gridTemplateColumns: `200px repeat(${days.length}, minmax(50px, 1fr))` }}>
+                  <div 
+                    className="sticky left-0 bg-muted z-10 p-2 border-b border-r font-semibold text-sm flex items-center gap-2 cursor-pointer hover:bg-muted/80"
+                    onClick={() => toggleRoomType(roomType.id)}
                   >
-                    {rowIndex === 0 && (
-                      <div 
-                        className="sticky left-0 bg-background z-10 p-3 border-b border-r font-medium text-sm"
-                        style={{ gridRow: `span ${reservationRows.length}` }}
-                      >
-                        <div>{roomType.name}</div>
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {typeReservations.length} reserva{typeReservations.length !== 1 ? 's' : ''}
-                        </div>
+                    <ChevronRight className={`h-4 w-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`} />
+                    <div>
+                      <div>{roomType.name}</div>
+                      <div className="text-xs text-muted-foreground font-normal">
+                        {typeRooms.length} habitación{typeRooms.length !== 1 ? 'es' : ''}
                       </div>
-                    )}
-                    
-                    <div className="relative col-span-full border-b" style={{ gridColumn: rowIndex === 0 ? `2 / ${days.length + 2}` : `1 / ${days.length + 1}` }}>
-                      <div className="grid h-12" style={{ gridTemplateColumns: `repeat(${days.length}, 1fr)` }}>
-                        {days.map((_, idx) => (
-                          <div key={idx} className="border-r border-border/50" />
-                        ))}
-                      </div>
-                      
-                      {row.map((reservation) => {
-                        const position = getReservationPosition(reservation, days);
-                        if (!position) return null;
-
-                        return (
-                          <Tooltip key={reservation.id}>
-                            <TooltipTrigger asChild>
-                              <div
-                                className={`absolute top-1 h-10 rounded-md ${getStatusColor(
-                                  reservation.status
-                                )} text-white text-xs px-2 py-1 cursor-pointer transition-all flex items-center truncate shadow-md`}
-                                style={{
-                                  left: `${(position.start / days.length) * 100}%`,
-                                  width: `${(position.span / days.length) * 100}%`,
-                                }}
-                                onClick={() => {
-                                  setSelectedReservation(reservation);
-                                  setDetailsOpen(true);
-                                }}
-                              >
-                                <span className="truncate font-medium">
-                                  {reservation.customer?.name || 'Sin nombre'}
-                                </span>
-                              </div>
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-xs">
-                              <div className="space-y-2">
-                                <div className="font-semibold text-base">
-                                  {reservation.customer?.name || 'Sin nombre'}
-                                </div>
-                                <div className="space-y-1 text-sm">
-                                  <div className="flex items-center gap-2">
-                                    <Calendar className="h-3 w-3" />
-                                    <span>
-                                      {format(parseISO(reservation.check_in), "dd MMM", { locale: es })} - {format(parseISO(reservation.check_out), "dd MMM yyyy", { locale: es })}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <Users className="h-3 w-3" />
-                                    <span>{reservation.guests} huésped{reservation.guests !== 1 ? 'es' : ''}</span>
-                                  </div>
-                                  <div className="flex items-center gap-2">
-                                    <DollarSign className="h-3 w-3" />
-                                    <span>{formatCurrency(reservation.total_amount_cents, reservation.currency)}</span>
-                                  </div>
-                                  <div className="pt-1 border-t mt-2">
-                                    <span className="text-xs font-medium">
-                                      Estado: {getStatusLabel(reservation.status)}
-                                    </span>
-                                  </div>
-                                  {reservation.customer?.email && (
-                                    <div className="text-xs text-muted-foreground">
-                                      {reservation.customer.email}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </TooltipContent>
-                          </Tooltip>
-                        );
-                      })}
                     </div>
                   </div>
-                ))}
+                  
+                  {days.map((day) => {
+                    const { available, total } = getAvailabilityForDay(roomType.id, day);
+                    return (
+                      <div
+                        key={day.toISOString()}
+                        className="flex items-center justify-center border-b border-r p-1"
+                      >
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-semibold ${getAvailabilityColor(available, total)}`}>
+                          {available}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {/* Individual rooms */}
+                {isExpanded && typeRooms.map((room) => {
+                  const roomReservations = reservations.filter(r => r.room_type_id === roomType.id);
+                  
+                  return (
+                    <div
+                      key={room.id}
+                      className="grid gap-0"
+                      style={{ gridTemplateColumns: `200px repeat(${days.length}, minmax(50px, 1fr))` }}
+                    >
+                      <div className="sticky left-0 bg-background z-10 p-2 border-b border-r text-sm flex items-center gap-2">
+                        <div className={`w-3 h-3 rounded-full ${
+                          room.status === 'AVAILABLE' ? 'bg-green-500' :
+                          room.status === 'OCCUPIED' ? 'bg-blue-500' :
+                          room.status === 'DIRTY' ? 'bg-orange-500' :
+                          room.status === 'MAINTENANCE' ? 'bg-red-500' :
+                          'bg-gray-500'
+                        }`} />
+                        <span className="font-medium">{room.room_number}</span>
+                      </div>
+                      
+                      <div className="relative col-span-full border-b">
+                        <div className="grid h-12" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(50px, 1fr))` }}>
+                          {days.map((_, idx) => (
+                            <div key={idx} className="border-r border-border/30" />
+                          ))}
+                        </div>
+                        
+                        {roomReservations.map((reservation) => {
+                          const position = getReservationPosition(reservation, days);
+                          if (!position) return null;
+
+                          return (
+                            <Tooltip key={reservation.id}>
+                              <TooltipTrigger asChild>
+                                <div
+                                  className={`absolute top-1 h-10 rounded ${getStatusColor(
+                                    reservation.status
+                                  )} text-white text-xs px-2 py-1 cursor-pointer transition-all flex items-center truncate shadow-sm`}
+                                  style={{
+                                    left: `${(position.start / days.length) * 100}%`,
+                                    width: `${(position.span / days.length) * 100}%`,
+                                  }}
+                                  onClick={() => {
+                                    setSelectedReservation(reservation);
+                                    setDetailsOpen(true);
+                                  }}
+                                >
+                                  <span className="truncate font-medium">
+                                    {reservation.customer?.name || 'Sin nombre'}
+                                  </span>
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs">
+                                <div className="space-y-2">
+                                  <div className="font-semibold text-base">
+                                    {reservation.customer?.name || 'Sin nombre'}
+                                  </div>
+                                  <div className="space-y-1 text-sm">
+                                    <div className="flex items-center gap-2">
+                                      <Calendar className="h-3 w-3" />
+                                      <span>
+                                        {format(parseISO(reservation.check_in), "dd MMM", { locale: es })} - {format(parseISO(reservation.check_out), "dd MMM yyyy", { locale: es })}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Users className="h-3 w-3" />
+                                      <span>{reservation.guests} huésped{reservation.guests !== 1 ? 'es' : ''}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <DollarSign className="h-3 w-3" />
+                                      <span>{formatCurrency(reservation.total_amount_cents, reservation.currency)}</span>
+                                    </div>
+                                    <div className="pt-1 border-t mt-2">
+                                      <span className="text-xs font-medium">
+                                        Estado: {getStatusLabel(reservation.status)}
+                                      </span>
+                                    </div>
+                                    {reservation.customer?.email && (
+                                      <div className="text-xs text-muted-foreground">
+                                        {reservation.customer.email}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
