@@ -14,7 +14,7 @@ interface ReservationsTimelineProps {
 
 export default function ReservationsTimeline({ hotelId, onUpdate }: ReservationsTimelineProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [rooms, setRooms] = useState<any[]>([]);
+  const [roomTypes, setRoomTypes] = useState<any[]>([]);
   const [reservations, setReservations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReservation, setSelectedReservation] = useState<any>(null);
@@ -29,12 +29,12 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
     const start = startOfMonth(currentMonth);
     const end = endOfMonth(currentMonth);
 
-    const [roomsData, reservationsData] = await Promise.all([
+    const [roomTypesData, reservationsData] = await Promise.all([
       supabase
-        .from("rooms")
-        .select("*, room_types(name)")
+        .from("room_types")
+        .select("*")
         .eq("hotel_id", hotelId)
-        .order("room_number", { ascending: true }),
+        .order("name", { ascending: true }),
       supabase
         .from("reservations")
         .select("*, room_types(name)")
@@ -43,8 +43,8 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
         .order("check_in", { ascending: true })
     ]);
 
-    if (roomsData.error) console.error("Error loading rooms:", roomsData.error);
-    else setRooms(roomsData.data || []);
+    if (roomTypesData.error) console.error("Error loading room types:", roomTypesData.error);
+    else setRoomTypes(roomTypesData.data || []);
 
     if (reservationsData.error) console.error("Error loading reservations:", reservationsData.error);
     else setReservations(reservationsData.data || []);
@@ -86,7 +86,7 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
     };
   };
 
-  const getReservationsForRoom = (roomTypeId: string) => {
+  const getReservationsForRoomType = (roomTypeId: string) => {
     return reservations.filter(r => r.room_type_id === roomTypeId);
   };
 
@@ -94,13 +94,6 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
   const previousMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
   const nextMonth = () => setCurrentMonth(addMonths(currentMonth, 1));
 
-  // Group rooms by type
-  const roomsByType = rooms.reduce((acc, room) => {
-    const typeName = room.room_types?.name || 'Sin tipo';
-    if (!acc[typeName]) acc[typeName] = [];
-    acc[typeName].push(room);
-    return acc;
-  }, {} as Record<string, any[]>);
 
   if (loading) {
     return (
@@ -133,9 +126,9 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
       <CardContent className="overflow-x-auto">
         <div className="min-w-[1200px]">
           {/* Header with dates */}
-          <div className="grid gap-0 mb-4" style={{ gridTemplateColumns: `200px repeat(${days.length}, 1fr)` }}>
+          <div className="grid gap-0 mb-4" style={{ gridTemplateColumns: `250px repeat(${days.length}, 1fr)` }}>
             <div className="sticky left-0 bg-background z-10 p-2 border-b font-semibold">
-              Habitación
+              Tipo de Habitación
             </div>
             {days.map((day) => {
               const isToday = isSameDay(day, new Date());
@@ -153,33 +146,65 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
             })}
           </div>
 
-          {/* Rooms and reservations */}
-          {Object.entries(roomsByType).map(([typeName, typeRooms]: [string, any[]]) => (
-            <div key={typeName} className="mb-6">
-              <div className="font-semibold text-sm text-muted-foreground mb-2 px-2">
-                {typeName}
-              </div>
-              {typeRooms.map((room) => {
-                const roomReservations = getReservationsForRoom(room.room_type_id);
+          {/* Room types and reservations */}
+          {roomTypes.map((roomType) => {
+            const typeReservations = getReservationsForRoomType(roomType.id);
+            
+            // Organize reservations in rows to avoid overlaps
+            const reservationRows: any[][] = [];
+            typeReservations.forEach((reservation) => {
+              const position = getReservationPosition(reservation, days);
+              if (!position) return;
+              
+              // Find a row where this reservation fits without overlap
+              let placed = false;
+              for (let row of reservationRows) {
+                const hasOverlap = row.some(r => {
+                  const rPos = getReservationPosition(r, days);
+                  if (!rPos) return false;
+                  return !(position.start + position.span <= rPos.start || position.start >= rPos.start + rPos.span);
+                });
                 
-                return (
+                if (!hasOverlap) {
+                  row.push(reservation);
+                  placed = true;
+                  break;
+                }
+              }
+              
+              if (!placed) {
+                reservationRows.push([reservation]);
+              }
+            });
+
+            return (
+              <div key={roomType.id} className="mb-2">
+                {reservationRows.map((row, rowIndex) => (
                   <div
-                    key={room.id}
+                    key={`${roomType.id}-row-${rowIndex}`}
                     className="grid gap-0 mb-1"
-                    style={{ gridTemplateColumns: `200px repeat(${days.length}, 1fr)` }}
+                    style={{ gridTemplateColumns: `250px repeat(${days.length}, 1fr)` }}
                   >
-                    <div className="sticky left-0 bg-background z-10 p-3 border-b border-r font-medium text-sm">
-                      {room.room_number}
-                    </div>
+                    {rowIndex === 0 && (
+                      <div 
+                        className="sticky left-0 bg-background z-10 p-3 border-b border-r font-medium text-sm"
+                        style={{ gridRow: `span ${reservationRows.length}` }}
+                      >
+                        <div>{roomType.name}</div>
+                        <div className="text-xs text-muted-foreground mt-1">
+                          {typeReservations.length} reserva{typeReservations.length !== 1 ? 's' : ''}
+                        </div>
+                      </div>
+                    )}
                     
-                    <div className="relative col-span-full border-b" style={{ gridColumn: `2 / ${days.length + 2}` }}>
+                    <div className="relative col-span-full border-b" style={{ gridColumn: rowIndex === 0 ? `2 / ${days.length + 2}` : `1 / ${days.length + 1}` }}>
                       <div className="grid h-12" style={{ gridTemplateColumns: `repeat(${days.length}, 1fr)` }}>
                         {days.map((_, idx) => (
                           <div key={idx} className="border-r border-border/50" />
                         ))}
                       </div>
                       
-                      {roomReservations.map((reservation) => {
+                      {row.map((reservation) => {
                         const position = getReservationPosition(reservation, days);
                         if (!position) return null;
 
@@ -206,10 +231,10 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
                       })}
                     </div>
                   </div>
-                );
-              })}
-            </div>
-          ))}
+                ))}
+              </div>
+            );
+          })}
         </div>
 
         <div className="flex flex-wrap gap-4 mt-6 pt-4 border-t">
