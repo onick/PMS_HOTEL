@@ -165,7 +165,6 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
   };
 
   const months = Array.from({ length: 12 }, (_, i) => new Date(currentYear, i, 1));
-  const years = Array.from({ length: 10 }, (_, i) => currentYear - 5 + i);
 
   const days = getDaysInMonth();
   const previousMonth = () => {
@@ -204,23 +203,8 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
           <CardTitle>Timeline de Reservas</CardTitle>
         </div>
 
-        {/* Year selector */}
-        <div className="flex flex-wrap gap-2">
-          {years.map((year) => (
-            <Button
-              key={year}
-              variant={year === currentYear ? "default" : "outline"}
-              size="sm"
-              onClick={() => selectYear(year)}
-              className="min-w-[60px]"
-            >
-              {year}
-            </Button>
-          ))}
-        </div>
-
         {/* Month selector */}
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 items-center">
           <Button variant="ghost" size="icon" onClick={previousMonth}>
             <ChevronLeft className="h-4 w-4" />
           </Button>
@@ -236,7 +220,7 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
                 onClick={() => selectMonth(month)}
                 className="min-w-[90px]"
               >
-                {format(month, "MMMM", { locale: es })}
+                {format(month, "MMMM yyyy", { locale: es })}
               </Button>
             );
           })}
