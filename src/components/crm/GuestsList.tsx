@@ -3,10 +3,10 @@ import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Users, Search, Star, Mail, Phone, Eye } from "lucide-react";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Users, Search, Eye } from "lucide-react";
+import { formatDate } from "@/lib/date-utils";
 
 interface GuestsListProps {
   onSelectGuest: (guest: any) => void;
@@ -15,8 +15,8 @@ interface GuestsListProps {
 export default function GuestsList({ onSelectGuest }: GuestsListProps) {
   const [searchTerm, setSearchTerm] = useState("");
 
-  const { data: guests } = useQuery({
-    queryKey: ["guests", searchTerm],
+  const { data: guestsData, isLoading } = useQuery({
+    queryKey: ["guests-list", searchTerm],
     queryFn: async () => {
       const { data: userRoles } = await supabase
         .from("user_roles")
@@ -26,14 +26,24 @@ export default function GuestsList({ onSelectGuest }: GuestsListProps) {
 
       if (!userRoles) return [];
 
+      // Get active reservations with guest info
       let query = supabase
-        .from("guests")
-        .select("*")
+        .from("reservations")
+        .select(`
+          id,
+          check_in,
+          check_out,
+          customer,
+          room_types(name),
+          folio_id,
+          folios(balance_cents, currency)
+        `)
         .eq("hotel_id", userRoles.hotel_id)
-        .order("last_stay_date", { ascending: false, nullsFirst: false });
+        .in("status", ["CONFIRMED", "CHECKED_IN"])
+        .order("check_in", { ascending: true });
 
       if (searchTerm) {
-        query = query.or(`name.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,phone.ilike.%${searchTerm}%`);
+        query = query.or(`customer->>name.ilike.%${searchTerm}%,customer->>email.ilike.%${searchTerm}%`);
       }
 
       const { data, error } = await query;
@@ -43,93 +53,96 @@ export default function GuestsList({ onSelectGuest }: GuestsListProps) {
     },
   });
 
+  const formatCurrency = (cents: number, currency: string) => {
+    return new Intl.NumberFormat("es-DO", {
+      style: "currency",
+      currency: currency || "DOP",
+    }).format(cents / 100);
+  };
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-crm">
+        <CardTitle className="flex items-center gap-2">
           <Users className="h-5 w-5" />
-          Base de Datos de Huéspedes ({guests?.length || 0})
+          Guest List ({guestsData?.length || 0})
         </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
-          <div className="relative">
+          <div className="relative mb-4">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Buscar por nombre, email o teléfono..."
+              placeholder="Search by guest name or email..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10"
             />
           </div>
 
-          <ScrollArea className="h-[600px] pr-4">
-            {!guests?.length ? (
-              <p className="text-muted-foreground text-center py-8">
-                {searchTerm ? "No se encontraron huéspedes" : "No hay huéspedes registrados"}
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {guests.map((guest: any) => (
-                  <div
-                    key={guest.id}
-                    className="p-4 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
-                    onClick={() => onSelectGuest(guest)}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <h4 className="font-semibold">{guest.name}</h4>
-                          {guest.vip_status && (
-                            <Badge className="bg-crm">
-                              <Star className="h-3 w-3 mr-1" />
-                              VIP
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-                          {guest.email && (
-                            <span className="flex items-center gap-1">
-                              <Mail className="h-3 w-3" />
-                              {guest.email}
-                            </span>
-                          )}
-                          {guest.phone && (
-                            <span className="flex items-center gap-1">
-                              <Phone className="h-3 w-3" />
-                              {guest.phone}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <Button variant="ghost" size="sm">
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    
-                    <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground pt-2 border-t">
-                      <div>
-                        <p className="font-medium text-foreground">{guest.total_stays}</p>
-                        <p>Estadías</p>
-                      </div>
-                      <div>
-                        <p className="font-medium text-foreground">
-                          ${((guest.total_spent_cents || 0) / 100).toFixed(0)}
-                        </p>
-                        <p>Gastado</p>
-                      </div>
-                      <div>
-                        <p className="font-medium text-foreground">
-                          {guest.last_stay_date ? new Date(guest.last_stay_date).toLocaleDateString() : "N/A"}
-                        </p>
-                        <p>Última visita</p>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </ScrollArea>
+          {isLoading ? (
+            <p className="text-muted-foreground text-center py-8">Loading guests...</p>
+          ) : !guestsData?.length ? (
+            <p className="text-muted-foreground text-center py-8">
+              {searchTerm ? "No guests found" : "No active reservations"}
+            </p>
+          ) : (
+            <div className="rounded-md border">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Guest Name</TableHead>
+                    <TableHead>Check In</TableHead>
+                    <TableHead>Check Out</TableHead>
+                    <TableHead>Room Type</TableHead>
+                    <TableHead>Allocated Room</TableHead>
+                    <TableHead className="text-right">Due Amount</TableHead>
+                    <TableHead className="w-[70px]"></TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {guestsData.map((reservation: any) => (
+                    <TableRow key={reservation.id} className="cursor-pointer hover:bg-muted/50">
+                      <TableCell className="font-medium">
+                        {reservation.customer?.name || "N/A"}
+                      </TableCell>
+                      <TableCell>
+                        {formatDate(reservation.check_in)}
+                      </TableCell>
+                      <TableCell>
+                        {formatDate(reservation.check_out)}
+                      </TableCell>
+                      <TableCell>
+                        {reservation.room_types?.name || "N/A"}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        TBD
+                      </TableCell>
+                      <TableCell className="text-right font-medium">
+                        {reservation.folios?.[0] 
+                          ? formatCurrency(reservation.folios[0].balance_cents, reservation.folios[0].currency)
+                          : "$0.00"}
+                      </TableCell>
+                      <TableCell>
+                        <Button 
+                          variant="ghost" 
+                          size="sm"
+                          onClick={() => onSelectGuest({
+                            id: reservation.id,
+                            name: reservation.customer?.name,
+                            email: reservation.customer?.email,
+                            phone: reservation.customer?.phone,
+                          })}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
         </div>
       </CardContent>
     </Card>
