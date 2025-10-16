@@ -88,44 +88,44 @@ export default function GuestsList({ onSelectGuest }: GuestsListProps) {
               {searchTerm ? "No guests found" : "No active reservations"}
             </p>
           ) : (
-            <div className="rounded-md border">
+            <div className="rounded-md border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Guest Name</TableHead>
-                    <TableHead>Check In</TableHead>
-                    <TableHead>Check Out</TableHead>
-                    <TableHead>Room Type</TableHead>
-                    <TableHead>Allocated Room</TableHead>
-                    <TableHead className="text-right">Due Amount</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead className="text-right">Action</TableHead>
+                    <TableHead className="min-w-[150px]">Guest Name</TableHead>
+                    <TableHead className="min-w-[110px]">Check In</TableHead>
+                    <TableHead className="min-w-[110px]">Check Out</TableHead>
+                    <TableHead className="min-w-[130px]">Room Type</TableHead>
+                    <TableHead className="min-w-[120px]">Allocated Room</TableHead>
+                    <TableHead className="text-right min-w-[120px]">Due Amount</TableHead>
+                    <TableHead className="min-w-[110px]">Status</TableHead>
+                    <TableHead className="text-right min-w-[100px]">Action</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {guestsData.map((reservation: any) => (
-                    <TableRow key={reservation.id} className="cursor-pointer hover:bg-muted/50">
-                      <TableCell className="font-medium">
+                    <TableRow key={reservation.id} className="hover:bg-muted/50">
+                      <TableCell className="font-medium py-4">
                         {reservation.customer?.name || "N/A"}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="py-4">
                         {formatDate(reservation.check_in)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="py-4">
                         {formatDate(reservation.check_out)}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="py-4">
                         {reservation.room_types?.name || "N/A"}
                       </TableCell>
-                      <TableCell className="text-muted-foreground">
+                      <TableCell className="text-muted-foreground py-4">
                         TBD
                       </TableCell>
-                      <TableCell className="text-right font-medium">
+                      <TableCell className="text-right font-medium py-4 pr-6">
                         {reservation.folios?.[0] 
                           ? formatCurrency(reservation.folios[0].balance_cents, reservation.folios[0].currency)
                           : "$0.00"}
                       </TableCell>
-                      <TableCell>
+                      <TableCell className="py-4">
                         <Badge variant={
                           reservation.status === 'CHECKED_IN' ? 'default' :
                           reservation.status === 'CONFIRMED' ? 'secondary' :
@@ -134,7 +134,7 @@ export default function GuestsList({ onSelectGuest }: GuestsListProps) {
                           {reservation.status}
                         </Badge>
                       </TableCell>
-                      <TableCell className="text-right">
+                      <TableCell className="text-right py-4">
                         <div className="flex gap-1 justify-end">
                           <Button 
                             variant="ghost" 
