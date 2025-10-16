@@ -1305,6 +1305,10 @@ export type Database = {
         }
         Returns: string
       }
+      get_occupancy_stats: {
+        Args: { hotel_id_param: string }
+        Returns: Json
+      }
       get_user_role: {
         Args: { _hotel_id: string; _user_id: string }
         Returns: Database["public"]["Enums"]["app_role"]
