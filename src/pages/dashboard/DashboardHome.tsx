@@ -13,6 +13,8 @@ import {
   Percent
 } from "lucide-react";
 import { formatDate } from "@/lib/date-utils";
+import GuestsList from "@/components/crm/GuestsList";
+import GuestDetails from "@/components/crm/GuestDetails";
 
 interface DashboardMetrics {
   totalReservations: number;
@@ -48,6 +50,7 @@ export default function DashboardHome() {
   const [loading, setLoading] = useState(true);
   const [upcomingCheckIns, setUpcomingCheckIns] = useState<any[]>([]);
   const [upcomingCheckOuts, setUpcomingCheckOuts] = useState<any[]>([]);
+  const [selectedGuest, setSelectedGuest] = useState<any>(null);
 
   useEffect(() => {
     loadMetrics();
@@ -338,6 +341,16 @@ export default function DashboardHome() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Lista de huéspedes */}
+      <GuestsList onSelectGuest={setSelectedGuest} />
+
+      {/* Detalles del huésped */}
+      <GuestDetails
+        guest={selectedGuest}
+        open={!!selectedGuest}
+        onClose={() => setSelectedGuest(null)}
+      />
     </div>
   );
 }
