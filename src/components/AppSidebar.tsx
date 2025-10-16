@@ -8,9 +8,9 @@ import {
   Users,
   BarChart3,
   Settings,
-  LogOut,
   Hotel,
   Shield,
+  User,
 } from "lucide-react";
 import {
   Sidebar,
@@ -24,9 +24,9 @@ import {
   SidebarFooter,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { Button } from "@/components/ui/button";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
 
 const mainItems = [
   { 
@@ -95,9 +95,17 @@ const settingsItems = [
 export function AppSidebar() {
   const { state } = useSidebar();
   const location = useLocation();
-  const navigate = useNavigate();
   const collapsed = state === "collapsed";
   const currentPath = location.pathname;
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUser(user);
+    };
+    getUser();
+  }, []);
 
   const isActive = (path: string) => {
     if (path === "/dashboard") {
@@ -113,9 +121,9 @@ export function AppSidebar() {
       : "hover:bg-muted/50 transition-smooth";
   };
 
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate("/auth");
+  const getUserInitials = () => {
+    if (!user?.email) return "U";
+    return user.email.charAt(0).toUpperCase();
   };
 
   return (
@@ -190,17 +198,34 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
 
-      {/* Footer con logout */}
-      <SidebarFooter className="p-2 border-t border-sidebar-border">
-        <Button
-          variant="ghost"
-          size={collapsed ? "icon" : "default"}
-          onClick={handleLogout}
-          className="w-full justify-start text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-        >
-          <LogOut className="h-5 w-5" />
-          {!collapsed && <span className="ml-2">Cerrar Sesión</span>}
-        </Button>
+      {/* Footer con usuario */}
+      <SidebarFooter className="p-3 border-t border-sidebar-border">
+        {collapsed ? (
+          <div className="flex justify-center">
+            <Avatar className="h-8 w-8">
+              <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+                {getUserInitials()}
+              </AvatarFallback>
+            </Avatar>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3 px-2">
+            <Avatar className="h-9 w-9">
+              <AvatarFallback className="bg-primary text-primary-foreground">
+                {getUserInitials()}
+              </AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-sidebar-foreground truncate">
+                Usuario
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                {user?.email}
+              </p>
+            </div>
+            <User className="h-4 w-4 text-muted-foreground" />
+          </div>
+        )}
       </SidebarFooter>
     </Sidebar>
   );
