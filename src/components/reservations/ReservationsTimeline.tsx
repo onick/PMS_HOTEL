@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { ChevronLeft, ChevronRight, Users, Calendar, DollarSign } from "lucide-react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, parseISO, isSameDay } from "date-fns";
 import { es } from "date-fns/locale";
 import ReservationDetails from "./ReservationDetails";
@@ -69,6 +70,24 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
     return colors[status as keyof typeof colors] || "bg-gray-400";
   };
 
+  const getStatusLabel = (status: string) => {
+    const labels = {
+      CONFIRMED: "Confirmada",
+      PENDING_PAYMENT: "Pendiente de pago",
+      CANCELLED: "Cancelada",
+      CHECKED_IN: "Check-in realizado",
+      CHECKED_OUT: "Check-out realizado",
+    };
+    return labels[status as keyof typeof labels] || status;
+  };
+
+  const formatCurrency = (cents: number, currency: string) => {
+    return new Intl.NumberFormat('es-DO', {
+      style: 'currency',
+      currency: currency || 'DOP',
+    }).format(cents / 100);
+  };
+
   const getReservationPosition = (reservation: any, days: Date[]) => {
     const checkIn = parseISO(reservation.check_in);
     const checkOut = parseISO(reservation.check_out);
@@ -106,7 +125,8 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
   }
 
   return (
-    <Card>
+    <TooltipProvider>
+      <Card>
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Timeline de Reservas</CardTitle>
@@ -209,24 +229,60 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
                         if (!position) return null;
 
                         return (
-                          <div
-                            key={reservation.id}
-                            className={`absolute top-1 h-10 rounded-md ${getStatusColor(
-                              reservation.status
-                            )} text-white text-xs px-2 py-1 cursor-pointer transition-all flex items-center truncate shadow-md`}
-                            style={{
-                              left: `${(position.start / days.length) * 100}%`,
-                              width: `${(position.span / days.length) * 100}%`,
-                            }}
-                            onClick={() => {
-                              setSelectedReservation(reservation);
-                              setDetailsOpen(true);
-                            }}
-                          >
-                            <span className="truncate font-medium">
-                              {reservation.customer?.name || 'Sin nombre'}
-                            </span>
-                          </div>
+                          <Tooltip key={reservation.id}>
+                            <TooltipTrigger asChild>
+                              <div
+                                className={`absolute top-1 h-10 rounded-md ${getStatusColor(
+                                  reservation.status
+                                )} text-white text-xs px-2 py-1 cursor-pointer transition-all flex items-center truncate shadow-md`}
+                                style={{
+                                  left: `${(position.start / days.length) * 100}%`,
+                                  width: `${(position.span / days.length) * 100}%`,
+                                }}
+                                onClick={() => {
+                                  setSelectedReservation(reservation);
+                                  setDetailsOpen(true);
+                                }}
+                              >
+                                <span className="truncate font-medium">
+                                  {reservation.customer?.name || 'Sin nombre'}
+                                </span>
+                              </div>
+                            </TooltipTrigger>
+                            <TooltipContent className="max-w-xs">
+                              <div className="space-y-2">
+                                <div className="font-semibold text-base">
+                                  {reservation.customer?.name || 'Sin nombre'}
+                                </div>
+                                <div className="space-y-1 text-sm">
+                                  <div className="flex items-center gap-2">
+                                    <Calendar className="h-3 w-3" />
+                                    <span>
+                                      {format(parseISO(reservation.check_in), "dd MMM", { locale: es })} - {format(parseISO(reservation.check_out), "dd MMM yyyy", { locale: es })}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <Users className="h-3 w-3" />
+                                    <span>{reservation.guests} huésped{reservation.guests !== 1 ? 'es' : ''}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    <DollarSign className="h-3 w-3" />
+                                    <span>{formatCurrency(reservation.total_amount_cents, reservation.currency)}</span>
+                                  </div>
+                                  <div className="pt-1 border-t mt-2">
+                                    <span className="text-xs font-medium">
+                                      Estado: {getStatusLabel(reservation.status)}
+                                    </span>
+                                  </div>
+                                  {reservation.customer?.email && (
+                                    <div className="text-xs text-muted-foreground">
+                                      {reservation.customer.email}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            </TooltipContent>
+                          </Tooltip>
                         );
                       })}
                     </div>
@@ -270,6 +326,7 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
           onUpdate?.();
         }}
       />
-    </Card>
+      </Card>
+    </TooltipProvider>
   );
 }
