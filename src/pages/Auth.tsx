@@ -16,6 +16,9 @@ const Auth = () => {
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
 
+  // Modo desarrollo: Auto-completar credenciales de prueba
+  const isDevelopment = import.meta.env.DEV;
+
   useEffect(() => {
     checkUser();
   }, []);
@@ -90,6 +93,14 @@ const Auth = () => {
 
             <TabsContent value="signin">
               <form onSubmit={handleSignIn} className="space-y-4">
+                {isDevelopment && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 text-sm">
+                    <p className="font-semibold text-yellow-800 mb-1">🔧 Modo Desarrollo</p>
+                    <p className="text-yellow-700 text-xs">
+                      Para probar el sistema, primero debes crear una cuenta en la pestaña "Registrarse"
+                    </p>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <Label htmlFor="email-signin">Email</Label>
                   <Input

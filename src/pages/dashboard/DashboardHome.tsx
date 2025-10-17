@@ -1,6 +1,6 @@
 import { useOutletContext } from "react-router-dom";
-import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { useMemo, useState } from "react";
+import { useDashboardMetrics } from "@/hooks/useDashboardMetrics";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { 
   TrendingUp, 
@@ -15,6 +15,7 @@ import {
 import { formatDate } from "@/lib/date-utils";
 import GuestsList from "@/components/crm/GuestsList";
 import GuestDetails from "@/components/crm/GuestDetails";
+import { DashboardSkeleton } from "@/components/ui/skeletons/DashboardSkeleton";
 
 interface DashboardMetrics {
   totalReservations: number;
@@ -33,100 +34,51 @@ interface DashboardMetrics {
 
 export default function DashboardHome() {
   const { hotel } = useOutletContext<{ hotel: any }>();
-  const [metrics, setMetrics] = useState<DashboardMetrics>({
-    totalReservations: 0,
-    confirmedReservations: 0,
-    pendingPayment: 0,
-    totalRevenue: 0,
-    averageRate: 0,
-    occupancyRate: 0,
-    totalRooms: 0,
-    occupiedToday: 0,
-    checkInsToday: 0,
-    checkOutsToday: 0,
-    revenueChange: 0,
-    occupancyChange: 0,
-  });
-  const [loading, setLoading] = useState(true);
-  const [upcomingCheckIns, setUpcomingCheckIns] = useState<any[]>([]);
-  const [upcomingCheckOuts, setUpcomingCheckOuts] = useState<any[]>([]);
+  const { data, isLoading } = useDashboardMetrics(hotel.id);
   const [selectedGuest, setSelectedGuest] = useState<any>(null);
 
-  useEffect(() => {
-    loadMetrics();
-  }, [hotel.id]);
+  const metrics = useMemo<DashboardMetrics>(() => {
+    if (!data) {
+      return {
+        totalReservations: 0,
+        confirmedReservations: 0,
+        pendingPayment: 0,
+        totalRevenue: 0,
+        averageRate: 0,
+        occupancyRate: 0,
+        totalRooms: 0,
+        occupiedToday: 0,
+        checkInsToday: 0,
+        checkOutsToday: 0,
+        revenueChange: 0,
+        occupancyChange: 0,
+      };
+    }
 
-  const loadMetrics = async () => {
-    setLoading(true);
-    const today = new Date().toISOString().split("T")[0];
-    
-    // Total de reservas
-    const { data: allReservations } = await supabase
-      .from("reservations")
-      .select("*, room_types(name)")
-      .eq("hotel_id", hotel.id);
+    const { allReservations, totalRooms, activeToday, checkInsToday, checkOutsToday, monthlyStats } = data;
 
-    const confirmed = allReservations?.filter(r => r.status === "CONFIRMED") || [];
-    const pending = allReservations?.filter(r => r.status === "PENDING_PAYMENT") || [];
+    const confirmed = allReservations.filter((r) => r.status === 'CONFIRMED');
+    const pending = allReservations.filter((r) => r.status === 'PENDING_PAYMENT');
 
-    // Ingresos totales (solo confirmadas)
-    const totalRevenue = confirmed.reduce((sum, r) => sum + (r.total_amount_cents / 100), 0);
+    const totalRevenue = confirmed.reduce((sum, r) => sum + r.total_amount_cents / 100, 0);
     const avgRate = confirmed.length > 0 ? totalRevenue / confirmed.length : 0;
+    const occupancyRate = totalRooms ? (activeToday.length / totalRooms) * 100 : 0;
 
-    // Total de habitaciones
-    const { count: totalRooms } = await supabase
-      .from("rooms")
-      .select("*", { count: "exact", head: true })
-      .eq("hotel_id", hotel.id);
-
-    // Reservas activas hoy
-    const { data: activeToday } = await supabase
-      .from("reservations")
-      .select("*")
-      .eq("hotel_id", hotel.id)
-      .eq("status", "CONFIRMED")
-      .lte("check_in", today)
-      .gte("check_out", today);
-
-    // Check-ins hoy
-    const { data: checkInsToday } = await supabase
-      .from("reservations")
-      .select("*, room_types(name)")
-      .eq("hotel_id", hotel.id)
-      .eq("check_in", today)
-      .order("check_in", { ascending: true })
-      .limit(5);
-
-    // Check-outs hoy
-    const { data: checkOutsToday } = await supabase
-      .from("reservations")
-      .select("*, room_types(name)")
-      .eq("hotel_id", hotel.id)
-      .eq("check_out", today)
-      .order("check_out", { ascending: true })
-      .limit(5);
-
-    const occupancyRate = totalRooms ? ((activeToday?.length || 0) / totalRooms) * 100 : 0;
-
-    setMetrics({
-      totalReservations: allReservations?.length || 0,
+    return {
+      totalReservations: allReservations.length,
       confirmedReservations: confirmed.length,
       pendingPayment: pending.length,
       totalRevenue,
       averageRate: avgRate,
       occupancyRate,
-      totalRooms: totalRooms || 0,
-      occupiedToday: activeToday?.length || 0,
-      checkInsToday: checkInsToday?.length || 0,
-      checkOutsToday: checkOutsToday?.length || 0,
-      revenueChange: 12.5, // Mock - calcular vs mes anterior
-      occupancyChange: 8.2, // Mock - calcular vs mes anterior
-    });
-
-    setUpcomingCheckIns(checkInsToday || []);
-    setUpcomingCheckOuts(checkOutsToday || []);
-    setLoading(false);
-  };
+      totalRooms,
+      occupiedToday: activeToday.length,
+      checkInsToday: checkInsToday.length,
+      checkOutsToday: checkOutsToday.length,
+      revenueChange: monthlyStats?.revenueChange || 0,
+      occupancyChange: monthlyStats?.occupancyChange || 0,
+    };
+  }, [data]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("es-DO", {
@@ -135,13 +87,12 @@ export default function DashboardHome() {
     }).format(amount);
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <p className="text-muted-foreground">Cargando métricas...</p>
-      </div>
-    );
+  if (isLoading) {
+    return <DashboardSkeleton />;
   }
+
+  const upcomingCheckIns = data?.checkInsToday || [];
+  const upcomingCheckOuts = data?.checkOutsToday || [];
 
   return (
     <div className="space-y-6">

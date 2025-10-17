@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CreditCard, Banknote, DollarSign, Building2 } from "lucide-react";
 import { toast } from "sonner";
+import { PaymentDialog } from "@/components/payments/PaymentDialog";
 
 interface PaymentMethodsProps {
   folio: any;
@@ -25,6 +26,7 @@ export default function PaymentMethods({ folio, onPaymentComplete }: PaymentMeth
   const [paymentMethod, setPaymentMethod] = useState<string>("");
   const [amount, setAmount] = useState<string>("");
   const [transactionId, setTransactionId] = useState<string>("");
+  const [showStripeDialog, setShowStripeDialog] = useState(false);
 
   const paymentMethods = [
     { id: "cash", name: "Efectivo", icon: Banknote },
@@ -96,20 +98,69 @@ export default function PaymentMethods({ folio, onPaymentComplete }: PaymentMeth
       return;
     }
 
+    // Si es Stripe, abrir el dialog de pago
+    if (paymentMethod === "stripe") {
+      setShowStripeDialog(true);
+      return;
+    }
+
+    // Para otros métodos, procesar directamente
     processPaymentMutation.mutate();
+  };
+
+  const handleStripePaymentSuccess = async () => {
+    const paymentAmount = parseFloat(amount);
+    const amountCents = Math.round(paymentAmount * 100);
+
+    try {
+      // Registrar el pago como cargo negativo
+      const { error: chargeError } = await supabase
+        .from("folio_charges")
+        .insert({
+          folio_id: folio.id,
+          description: `Pago - Stripe (Online)`,
+          amount_cents: -amountCents,
+        });
+
+      if (chargeError) throw chargeError;
+
+      // Actualizar balance del folio
+      const newBalance = folio.balance_cents - amountCents;
+      const { error: folioError } = await supabase
+        .from("folios")
+        .update({ balance_cents: Math.max(0, newBalance) })
+        .eq("id", folio.id);
+
+      if (folioError) throw folioError;
+
+      toast.success("Pago procesado correctamente");
+      setAmount("");
+      setPaymentMethod("");
+      setShowStripeDialog(false);
+      queryClient.invalidateQueries({ queryKey: ["folio-charges"] });
+      queryClient.invalidateQueries({ queryKey: ["active-folios"] });
+      queryClient.invalidateQueries({ queryKey: ["billing-stats"] });
+
+      if (newBalance === 0) {
+        onPaymentComplete();
+      }
+    } catch (error: any) {
+      toast.error("Error al registrar pago: " + error.message);
+    }
   };
 
   const balance = folio.balance_cents / 100;
 
   return (
-    <Card className="border-success/20 bg-success/5">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-success">
-          <DollarSign className="h-5 w-5" />
-          Procesar Pago
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
+    <>
+      <Card className="border-success/20 bg-success/5">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-success">
+            <DollarSign className="h-5 w-5" />
+            Procesar Pago
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
         <div>
           <Label>Método de Pago</Label>
           <Select value={paymentMethod} onValueChange={setPaymentMethod}>
@@ -182,9 +233,19 @@ export default function PaymentMethods({ folio, onPaymentComplete }: PaymentMeth
           className="w-full bg-success hover:bg-success/90"
           size="lg"
         >
-          {processPaymentMutation.isPending ? "Procesando..." : "Confirmar Pago"}
+          {processPaymentMutation.isPending ? "Procesando..." : paymentMethod === "stripe" ? "Ir a Pago Seguro" : "Confirmar Pago"}
         </Button>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+
+      <PaymentDialog
+        open={showStripeDialog}
+        onOpenChange={setShowStripeDialog}
+        amount={Math.round(parseFloat(amount || "0") * 100)}
+        currency={folio.currency}
+        reservationId={folio.reservations?.[0]?.id}
+        onSuccess={handleStripePaymentSuccess}
+      />
+    </>
   );
 }

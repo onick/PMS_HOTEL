@@ -28,17 +28,63 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
   const queryClient = useQueryClient();
   const [newNote, setNewNote] = useState("");
 
+  // Fetch full guest details from guests table
+  const { data: guestDetails } = useQuery({
+    queryKey: ["guest-details", guest?.email],
+    enabled: !!guest?.email && open,
+    queryFn: async () => {
+      const { data: user } = await supabase.auth.getUser();
+      const { data: userRoles } = await supabase
+        .from("user_roles")
+        .select("hotel_id")
+        .eq("user_id", user.user?.id!)
+        .single();
+
+      if (!userRoles) return null;
+
+      const { data, error } = await supabase
+        .from("guests")
+        .select("*")
+        .eq("hotel_id", userRoles.hotel_id)
+        .eq("email", guest.email)
+        .single();
+
+      if (error) {
+        // Guest doesn't exist yet in guests table, return the passed data
+        return {
+          ...guest,
+          total_stays: 0,
+          total_spent_cents: 0,
+          vip_status: false,
+        };
+      }
+      return data;
+    },
+  });
+
+  const displayGuest = guestDetails || guest;
+
   const { data: reservations } = useQuery({
     queryKey: ["guest-reservations", guest?.id],
     enabled: !!guest?.id && open,
     queryFn: async () => {
+      // Get hotel_id from user_roles
+      const { data: user } = await supabase.auth.getUser();
+      const { data: userRoles } = await supabase
+        .from("user_roles")
+        .select("hotel_id")
+        .eq("user_id", user.user?.id!)
+        .single();
+
+      if (!userRoles) throw new Error("No se encontró el hotel del usuario");
+
       const { data, error } = await supabase
         .from("reservations")
         .select(`
           *,
           room_types (name)
         `)
-        .eq("hotel_id", guest.hotel_id)
+        .eq("hotel_id", userRoles.hotel_id)
         .contains("customer", { email: guest.email })
         .order("created_at", { ascending: false });
 
@@ -48,16 +94,36 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
   });
 
   const { data: notes } = useQuery({
-    queryKey: ["guest-notes", guest?.id],
-    enabled: !!guest?.id && open,
+    queryKey: ["guest-notes", guest?.email],
+    enabled: !!guest?.email && open,
     queryFn: async () => {
+      // Get hotel_id from user_roles
+      const { data: user } = await supabase.auth.getUser();
+      const { data: userRoles } = await supabase
+        .from("user_roles")
+        .select("hotel_id")
+        .eq("user_id", user.user?.id!)
+        .single();
+
+      if (!userRoles) return [];
+
+      // Find guest by email
+      const { data: guestRecord } = await supabase
+        .from("guests")
+        .select("id")
+        .eq("hotel_id", userRoles.hotel_id)
+        .eq("email", guest.email)
+        .single();
+
+      if (!guestRecord) return [];
+
       const { data, error } = await supabase
         .from("guest_notes")
         .select(`
           *,
-          profiles (full_name)
+          user_roles!user_id (full_name)
         `)
-        .eq("guest_id", guest.id)
+        .eq("guest_id", guestRecord.id)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -68,12 +134,51 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
   const addNoteMutation = useMutation({
     mutationFn: async (note: string) => {
       const { data: user } = await supabase.auth.getUser();
-      
+
+      // Get hotel_id from user_roles
+      const { data: userRoles } = await supabase
+        .from("user_roles")
+        .select("hotel_id")
+        .eq("user_id", user.user?.id!)
+        .single();
+
+      if (!userRoles) throw new Error("No se encontró el hotel del usuario");
+
+      // Find or create guest in guests table
+      let guestId = guest.id;
+
+      // Check if guest.id is actually a guest_id or reservation_id
+      const { data: existingGuest } = await supabase
+        .from("guests")
+        .select("id")
+        .eq("hotel_id", userRoles.hotel_id)
+        .eq("email", guest.email)
+        .single();
+
+      if (existingGuest) {
+        guestId = existingGuest.id;
+      } else {
+        // Create new guest record
+        const { data: newGuest, error: guestError } = await supabase
+          .from("guests")
+          .insert({
+            hotel_id: userRoles.hotel_id,
+            name: guest.name,
+            email: guest.email,
+            phone: guest.phone,
+          })
+          .select("id")
+          .single();
+
+        if (guestError) throw guestError;
+        guestId = newGuest.id;
+      }
+
       const { error } = await supabase
         .from("guest_notes")
         .insert({
-          hotel_id: guest.hotel_id,
-          guest_id: guest.id,
+          hotel_id: userRoles.hotel_id,
+          guest_id: guestId,
           user_id: user.user?.id,
           note: note,
           note_type: "general",
@@ -84,7 +189,7 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
     onSuccess: () => {
       toast.success("Nota agregada correctamente");
       setNewNote("");
-      queryClient.invalidateQueries({ queryKey: ["guest-notes"] });
+      queryClient.invalidateQueries({ queryKey: ["guest-notes", guest.email] });
     },
     onError: (error: any) => {
       toast.error("Error al agregar nota: " + error.message);
@@ -93,15 +198,59 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
 
   const toggleVIPMutation = useMutation({
     mutationFn: async () => {
+      // Get hotel_id from user_roles
+      const { data: user } = await supabase.auth.getUser();
+      const { data: userRoles } = await supabase
+        .from("user_roles")
+        .select("hotel_id")
+        .eq("user_id", user.user?.id!)
+        .single();
+
+      if (!userRoles) throw new Error("No se encontró el hotel del usuario");
+
+      // Find or create guest by email
+      const { data: existingGuest } = await supabase
+        .from("guests")
+        .select("id, vip_status")
+        .eq("hotel_id", userRoles.hotel_id)
+        .eq("email", guest.email)
+        .single();
+
+      let guestId;
+      let currentVipStatus;
+
+      if (existingGuest) {
+        guestId = existingGuest.id;
+        currentVipStatus = existingGuest.vip_status;
+      } else {
+        // Create new guest record
+        const { data: newGuest, error: guestError } = await supabase
+          .from("guests")
+          .insert({
+            hotel_id: userRoles.hotel_id,
+            name: guest.name,
+            email: guest.email,
+            phone: guest.phone,
+            vip_status: true,
+          })
+          .select("id, vip_status")
+          .single();
+
+        if (guestError) throw guestError;
+        guestId = newGuest.id;
+        currentVipStatus = newGuest.vip_status;
+        return;
+      }
+
       const { error } = await supabase
         .from("guests")
-        .update({ vip_status: !guest.vip_status })
-        .eq("id", guest.id);
+        .update({ vip_status: !currentVipStatus })
+        .eq("id", guestId);
 
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success(`Estado VIP ${!guest.vip_status ? "activado" : "desactivado"}`);
+      toast.success("Estado VIP actualizado");
       queryClient.invalidateQueries({ queryKey: ["guests"] });
       onClose();
     },
@@ -119,16 +268,16 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
           <DialogTitle className="flex items-center justify-between">
             <span className="flex items-center gap-2">
               <User className="h-5 w-5" />
-              {guest.name}
+              {displayGuest.name}
             </span>
             <Button
-              variant={guest.vip_status ? "default" : "outline"}
+              variant={displayGuest.vip_status ? "default" : "outline"}
               size="sm"
               onClick={() => toggleVIPMutation.mutate()}
-              className={guest.vip_status ? "bg-crm hover:bg-crm/90" : ""}
+              className={displayGuest.vip_status ? "bg-crm hover:bg-crm/90" : ""}
             >
               <Star className="h-3 w-3 mr-1" />
-              {guest.vip_status ? "VIP" : "Marcar VIP"}
+              {displayGuest.vip_status ? "VIP" : "Marcar VIP"}
             </Button>
           </DialogTitle>
           <DialogDescription>
@@ -147,22 +296,22 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <h4 className="font-semibold text-sm text-muted-foreground">Contacto</h4>
-                {guest.email && (
+                {displayGuest.email && (
                   <div className="flex items-center gap-2">
                     <Mail className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{guest.email}</span>
+                    <span className="text-sm">{displayGuest.email}</span>
                   </div>
                 )}
-                {guest.phone && (
+                {displayGuest.phone && (
                   <div className="flex items-center gap-2">
                     <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{guest.phone}</span>
+                    <span className="text-sm">{displayGuest.phone}</span>
                   </div>
                 )}
-                {guest.country && (
+                {displayGuest.country && (
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{guest.country}</span>
+                    <span className="text-sm">{displayGuest.country}</span>
                   </div>
                 )}
               </div>
@@ -171,23 +320,23 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
                 <h4 className="font-semibold text-sm text-muted-foreground">Estadísticas</h4>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="p-3 border rounded">
-                    <p className="text-2xl font-bold">{guest.total_stays}</p>
+                    <p className="text-2xl font-bold">{displayGuest.total_stays || 0}</p>
                     <p className="text-xs text-muted-foreground">Estadías</p>
                   </div>
                   <div className="p-3 border rounded">
-                    <p className="text-2xl font-bold">${((guest.total_spent_cents || 0) / 100).toFixed(0)}</p>
+                    <p className="text-2xl font-bold">${((displayGuest.total_spent_cents || 0) / 100).toFixed(0)}</p>
                     <p className="text-xs text-muted-foreground">Total gastado</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            {guest.notes && (
+            {displayGuest.notes && (
               <>
                 <Separator />
                 <div>
                   <h4 className="font-semibold text-sm text-muted-foreground mb-2">Notas generales</h4>
-                  <p className="text-sm">{guest.notes}</p>
+                  <p className="text-sm">{displayGuest.notes}</p>
                 </div>
               </>
             )}
@@ -266,7 +415,7 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
                     <div key={note.id} className="p-3 border rounded-lg">
                       <p className="text-sm mb-2">{note.note}</p>
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{note.profiles?.full_name || "Usuario"}</span>
+                        <span>{note.user_roles?.full_name || "Usuario"}</span>
                         <span>{formatDate(note.created_at)}</span>
                       </div>
                     </div>

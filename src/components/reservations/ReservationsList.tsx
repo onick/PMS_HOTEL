@@ -4,9 +4,10 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { formatDate } from "@/lib/date-utils";
-import { Calendar, Users, Eye, ChevronRight } from "lucide-react";
+import { Calendar, Users, Eye, ChevronRight, ChevronLeft } from "lucide-react";
 import ReservationDetails from "./ReservationDetails";
 import { ReservationFilters } from "./ReservationFilters";
+import { ReservationsListSkeleton } from "@/components/ui/skeletons/ReservationSkeleton";
 
 interface ReservationsListProps {
   hotelId: string;
@@ -14,21 +15,34 @@ interface ReservationsListProps {
   onUpdate?: () => void;
 }
 
+const ITEMS_PER_PAGE = 10;
+
 export default function ReservationsList({ hotelId, filters, onUpdate }: ReservationsListProps) {
   const [reservations, setReservations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReservation, setSelectedReservation] = useState<any>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
 
   useEffect(() => {
     loadReservations();
-  }, [hotelId, filters]);
+  }, [hotelId, filters, currentPage]);
+
+  useEffect(() => {
+    // Reset to first page when filters change
+    setCurrentPage(1);
+  }, [filters]);
 
   const loadReservations = async () => {
     setLoading(true);
+
+    const from = (currentPage - 1) * ITEMS_PER_PAGE;
+    const to = from + ITEMS_PER_PAGE - 1;
+
     let query = supabase
       .from("reservations")
-      .select("*, room_types(name)")
+      .select("*, room_types(name)", { count: 'exact' })
       .eq("hotel_id", hotelId);
 
     // Aplicar filtros
@@ -52,16 +66,25 @@ export default function ReservationsList({ hotelId, filters, onUpdate }: Reserva
       query = query.lte("check_out", filters.dateRange.to.toISOString().split("T")[0]);
     }
 
-    query = query.order("created_at", { ascending: false }).limit(20);
+    query = query.order("created_at", { ascending: false }).range(from, to);
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
 
     if (error) {
       console.error("Error loading reservations:", error);
     } else {
       setReservations(data || []);
+      setTotalCount(count || 0);
     }
     setLoading(false);
+  };
+
+  const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
+
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+    }
   };
 
   const formatCurrency = (cents: number) => {
@@ -90,11 +113,7 @@ export default function ReservationsList({ hotelId, filters, onUpdate }: Reserva
   };
 
   if (loading) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        Cargando reservas...
-      </div>
-    );
+    return <ReservationsListSkeleton />;
   }
 
   if (reservations.length === 0) {
@@ -108,7 +127,7 @@ export default function ReservationsList({ hotelId, filters, onUpdate }: Reserva
   }
 
   return (
-    <div>
+    <div className="space-y-4">
       {loading ? (
         <div className="text-center py-8">Cargando...</div>
       ) : (
@@ -173,6 +192,60 @@ export default function ReservationsList({ hotelId, filters, onUpdate }: Reserva
               </div>
             </Card>
           ))}
+        </div>
+      )}
+
+      {/* Pagination Controls */}
+      {!loading && totalPages > 1 && (
+        <div className="flex items-center justify-between px-2 pt-4">
+          <div className="text-sm text-muted-foreground">
+            Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, totalCount)} of {totalCount} reservations
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePageChange(currentPage - 1)}
+              disabled={currentPage === 1}
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Previous
+            </Button>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                let pageNum;
+                if (totalPages <= 5) {
+                  pageNum = i + 1;
+                } else if (currentPage <= 3) {
+                  pageNum = i + 1;
+                } else if (currentPage >= totalPages - 2) {
+                  pageNum = totalPages - 4 + i;
+                } else {
+                  pageNum = currentPage - 2 + i;
+                }
+                return (
+                  <Button
+                    key={pageNum}
+                    variant={currentPage === pageNum ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => handlePageChange(pageNum)}
+                    className="w-9"
+                  >
+                    {pageNum}
+                  </Button>
+                );
+              })}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePageChange(currentPage + 1)}
+              disabled={currentPage === totalPages}
+            >
+              Next
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       )}
 

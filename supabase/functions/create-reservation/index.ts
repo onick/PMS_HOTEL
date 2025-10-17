@@ -13,6 +13,7 @@ interface CreateReservationInput {
   checkIn: string;
   checkOut: string;
   guests: number;
+  guestBreakdown?: { adults: number; children: number; infants: number };
   customer: { name: string; email: string; phone?: string };
   ratePlanId: string;
   currency: "DOP" | "USD";
@@ -149,7 +150,10 @@ serve(async (req) => {
       folio_id: folioId,
       hold_expires_at: holdExpiresAt,
       payment_intent_id: input.payment?.paymentIntentId || null,
-      metadata: input.metadata || {},
+      metadata: {
+        ...input.metadata,
+        guestBreakdown: input.guestBreakdown,
+      },
     });
 
     if (resError) {

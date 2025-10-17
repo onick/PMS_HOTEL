@@ -5,33 +5,32 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Pencil, Trash2, BedDouble } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { Plus, Pencil, Trash2, Percent } from "lucide-react";
 import { toast } from "sonner";
 
-interface RoomType {
+interface RatePlan {
   id: string;
   hotel_id: string;
   name: string;
   description: string | null;
-  base_price_cents: number;
-  base_occupancy: number;
-  max_occupancy: number;
+  discount_percentage: number;
+  is_active: boolean;
   created_at: string;
 }
 
-export function RoomTypesSettings() {
+export function RatePlansSettings() {
   const [open, setOpen] = useState(false);
-  const [editingType, setEditingType] = useState<RoomType | null>(null);
+  const [editingPlan, setEditingPlan] = useState<RatePlan | null>(null);
   const [formData, setFormData] = useState({
     name: "",
     description: "",
-    base_price: "",
-    base_occupancy: "2",
-    max_occupancy: "4",
+    discount_percentage: "0",
+    is_active: true,
   });
 
   const queryClient = useQueryClient();
@@ -54,20 +53,20 @@ export function RoomTypesSettings() {
     },
   });
 
-  // Fetch room types
-  const { data: roomTypes, isLoading } = useQuery({
-    queryKey: ["room-types-settings", userRoles?.hotel_id],
+  // Fetch rate plans
+  const { data: ratePlans, isLoading } = useQuery({
+    queryKey: ["rate-plans", userRoles?.hotel_id],
     queryFn: async () => {
       if (!userRoles?.hotel_id) return [];
       
       const { data, error } = await supabase
-        .from("room_types")
+        .from("rate_plans")
         .select("*")
         .eq("hotel_id", userRoles.hotel_id)
         .order("name");
       
       if (error) throw error;
-      return data as RoomType[];
+      return data as RatePlan[];
     },
     enabled: !!userRoles?.hotel_id,
   });
@@ -78,27 +77,25 @@ export function RoomTypesSettings() {
       if (!userRoles?.hotel_id) throw new Error("No hotel ID");
       
       const { error } = await supabase
-        .from("room_types")
+        .from("rate_plans")
         .insert({
           hotel_id: userRoles.hotel_id,
           name: data.name,
           description: data.description || null,
-          base_price_cents: Math.round(parseFloat(data.base_price) * 100),
-          base_occupancy: parseInt(data.base_occupancy),
-          max_occupancy: parseInt(data.max_occupancy),
+          discount_percentage: parseFloat(data.discount_percentage),
+          is_active: data.is_active,
         });
       
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["room-types-settings"] });
-      queryClient.invalidateQueries({ queryKey: ["room-types"] });
-      toast.success("Tipo de habitación creado exitosamente");
+      queryClient.invalidateQueries({ queryKey: ["rate-plans"] });
+      toast.success("Plan de tarifas creado exitosamente");
       setOpen(false);
       resetForm();
     },
     onError: (error: any) => {
-      toast.error(error.message || "Error al crear tipo de habitación");
+      toast.error(error.message || "Error al crear plan de tarifas");
     },
   });
 
@@ -106,28 +103,26 @@ export function RoomTypesSettings() {
   const updateMutation = useMutation({
     mutationFn: async (data: typeof formData & { id: string }) => {
       const { error } = await supabase
-        .from("room_types")
+        .from("rate_plans")
         .update({
           name: data.name,
           description: data.description || null,
-          base_price_cents: Math.round(parseFloat(data.base_price) * 100),
-          base_occupancy: parseInt(data.base_occupancy),
-          max_occupancy: parseInt(data.max_occupancy),
+          discount_percentage: parseFloat(data.discount_percentage),
+          is_active: data.is_active,
         })
         .eq("id", data.id);
       
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["room-types-settings"] });
-      queryClient.invalidateQueries({ queryKey: ["room-types"] });
-      toast.success("Tipo de habitación actualizado exitosamente");
+      queryClient.invalidateQueries({ queryKey: ["rate-plans"] });
+      toast.success("Plan de tarifas actualizado exitosamente");
       setOpen(false);
-      setEditingType(null);
+      setEditingPlan(null);
       resetForm();
     },
     onError: (error: any) => {
-      toast.error(error.message || "Error al actualizar tipo de habitación");
+      toast.error(error.message || "Error al actualizar plan de tarifas");
     },
   });
 
@@ -135,19 +130,18 @@ export function RoomTypesSettings() {
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase
-        .from("room_types")
+        .from("rate_plans")
         .delete()
         .eq("id", id);
       
       if (error) throw error;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["room-types-settings"] });
-      queryClient.invalidateQueries({ queryKey: ["room-types"] });
-      toast.success("Tipo de habitación eliminado exitosamente");
+      queryClient.invalidateQueries({ queryKey: ["rate-plans"] });
+      toast.success("Plan de tarifas eliminado exitosamente");
     },
     onError: (error: any) => {
-      toast.error(error.message || "Error al eliminar tipo de habitación. Puede tener habitaciones asociadas.");
+      toast.error(error.message || "Error al eliminar plan de tarifas");
     },
   });
 
@@ -155,44 +149,35 @@ export function RoomTypesSettings() {
     setFormData({
       name: "",
       description: "",
-      base_price: "",
-      base_occupancy: "2",
-      max_occupancy: "4",
+      discount_percentage: "0",
+      is_active: true,
     });
   };
 
-  const handleEdit = (type: RoomType) => {
-    setEditingType(type);
+  const handleEdit = (plan: RatePlan) => {
+    setEditingPlan(plan);
     setFormData({
-      name: type.name,
-      description: type.description || "",
-      base_price: (type.base_price_cents / 100).toString(),
-      base_occupancy: type.base_occupancy.toString(),
-      max_occupancy: type.max_occupancy.toString(),
+      name: plan.name,
+      description: plan.description || "",
+      discount_percentage: plan.discount_percentage.toString(),
+      is_active: plan.is_active,
     });
     setOpen(true);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (editingType) {
-      updateMutation.mutate({ ...formData, id: editingType.id });
+    if (editingPlan) {
+      updateMutation.mutate({ ...formData, id: editingPlan.id });
     } else {
       createMutation.mutate(formData);
     }
   };
 
   const handleDelete = (id: string) => {
-    if (confirm("¿Está seguro de que desea eliminar este tipo de habitación? Esto puede afectar las reservas existentes.")) {
+    if (confirm("¿Está seguro de que desea eliminar este plan de tarifas?")) {
       deleteMutation.mutate(id);
     }
-  };
-
-  const formatCurrency = (cents: number) => {
-    return new Intl.NumberFormat("es-DO", {
-      style: "currency",
-      currency: "DOP",
-    }).format(cents / 100);
   };
 
   return (
@@ -201,42 +186,42 @@ export function RoomTypesSettings() {
         <div className="flex items-center justify-between">
           <div>
             <CardTitle className="flex items-center gap-2">
-              <BedDouble className="h-5 w-5" />
-              Tipos de Habitaciones
+              <Percent className="h-5 w-5" />
+              Planes de Tarifas
             </CardTitle>
             <CardDescription>
-              Gestiona los tipos de habitaciones de tu hotel
+              Gestiona los planes de tarifas de tu hotel (BAR, Early Bird, etc.)
             </CardDescription>
           </div>
           <Dialog open={open} onOpenChange={(isOpen) => {
             setOpen(isOpen);
             if (!isOpen) {
-              setEditingType(null);
+              setEditingPlan(null);
               resetForm();
             }
           }}>
             <DialogTrigger asChild>
               <Button>
                 <Plus className="h-4 w-4 mr-2" />
-                Nuevo Tipo
+                Nuevo Plan
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>
-                  {editingType ? "Editar Tipo de Habitación" : "Nuevo Tipo de Habitación"}
+                  {editingPlan ? "Editar Plan de Tarifas" : "Nuevo Plan de Tarifas"}
                 </DialogTitle>
                 <DialogDescription>
-                  {editingType ? "Modifica" : "Crea"} un tipo de habitación
+                  {editingPlan ? "Modifica" : "Crea"} un plan de tarifas para tu hotel
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="name">Nombre del Tipo</Label>
+                  <Label htmlFor="name">Nombre del Plan</Label>
                   <Input
                     id="name"
                     required
-                    placeholder="Ej: Doble Estándar"
+                    placeholder="Ej: Early Bird"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                   />
@@ -246,57 +231,39 @@ export function RoomTypesSettings() {
                   <Label htmlFor="description">Descripción</Label>
                   <Textarea
                     id="description"
-                    placeholder="Descripción del tipo de habitación"
+                    placeholder="Descripción del plan"
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   />
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="base_price">Precio Base (RD$)</Label>
+                  <Label htmlFor="discount">Descuento (%)</Label>
                   <Input
-                    id="base_price"
+                    id="discount"
                     type="number"
                     required
                     min="0"
+                    max="100"
                     step="0.01"
-                    placeholder="Ej: 2500"
-                    value={formData.base_price}
-                    onChange={(e) => setFormData({ ...formData, base_price: e.target.value })}
+                    placeholder="Ej: 15"
+                    value={formData.discount_percentage}
+                    onChange={(e) => setFormData({ ...formData, discount_percentage: e.target.value })}
                   />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="base_occupancy">Ocupación Base</Label>
-                    <Input
-                      id="base_occupancy"
-                      type="number"
-                      required
-                      min="1"
-                      placeholder="Ej: 2"
-                      value={formData.base_occupancy}
-                      onChange={(e) => setFormData({ ...formData, base_occupancy: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="max_occupancy">Ocupación Máxima</Label>
-                    <Input
-                      id="max_occupancy"
-                      type="number"
-                      required
-                      min="1"
-                      placeholder="Ej: 4"
-                      value={formData.max_occupancy}
-                      onChange={(e) => setFormData({ ...formData, max_occupancy: e.target.value })}
-                    />
-                  </div>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="is_active"
+                    checked={formData.is_active}
+                    onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
+                  />
+                  <Label htmlFor="is_active">Plan activo</Label>
                 </div>
 
                 <DialogFooter>
                   <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-                    {createMutation.isPending || updateMutation.isPending ? "Guardando..." : editingType ? "Actualizar" : "Crear"}
+                    {createMutation.isPending || updateMutation.isPending ? "Guardando..." : editingPlan ? "Actualizar" : "Crear"}
                   </Button>
                 </DialogFooter>
               </form>
@@ -306,10 +273,10 @@ export function RoomTypesSettings() {
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <p className="text-center text-muted-foreground py-8">Cargando tipos de habitaciones...</p>
-        ) : !roomTypes?.length ? (
+          <p className="text-center text-muted-foreground py-8">Cargando planes de tarifas...</p>
+        ) : !ratePlans?.length ? (
           <p className="text-center text-muted-foreground py-8">
-            No hay tipos de habitaciones configurados. Crea uno nuevo.
+            No hay planes de tarifas configurados. Crea uno nuevo.
           </p>
         ) : (
           <Table>
@@ -317,39 +284,41 @@ export function RoomTypesSettings() {
               <TableRow>
                 <TableHead>Nombre</TableHead>
                 <TableHead>Descripción</TableHead>
-                <TableHead>Precio Base</TableHead>
-                <TableHead>Ocupación Base</TableHead>
-                <TableHead>Ocupación Máx.</TableHead>
+                <TableHead>Descuento</TableHead>
+                <TableHead>Estado</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {roomTypes.map((type) => (
-                <TableRow key={type.id}>
-                  <TableCell className="font-medium">{type.name}</TableCell>
+              {ratePlans.map((plan) => (
+                <TableRow key={plan.id}>
+                  <TableCell className="font-medium">{plan.name}</TableCell>
                   <TableCell className="text-muted-foreground">
-                    {type.description || "-"}
+                    {plan.description || "-"}
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary">
-                      {formatCurrency(type.base_price_cents)}
+                      {plan.discount_percentage}%
                     </Badge>
                   </TableCell>
-                  <TableCell>{type.base_occupancy} personas</TableCell>
-                  <TableCell>{type.max_occupancy} personas</TableCell>
+                  <TableCell>
+                    <Badge variant={plan.is_active ? "default" : "secondary"}>
+                      {plan.is_active ? "Activo" : "Inactivo"}
+                    </Badge>
+                  </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleEdit(type)}
+                        onClick={() => handleEdit(plan)}
                       >
                         <Pencil className="h-4 w-4" />
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleDelete(type.id)}
+                        onClick={() => handleDelete(plan.id)}
                         disabled={deleteMutation.isPending}
                       >
                         <Trash2 className="h-4 w-4" />

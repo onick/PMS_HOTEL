@@ -21,6 +21,7 @@ import {
   XCircle,
   Edit,
   Trash2,
+  Banknote,
 } from "lucide-react";
 import { formatDate } from "@/lib/date-utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -36,6 +37,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DialogContent as SecondaryDialogContent,
+  DialogHeader as SecondaryDialogHeader,
+  DialogTitle as SecondaryDialogTitle,
+  DialogDescription as SecondaryDialogDescription,
+} from "@/components/ui/dialog";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Input } from "@/components/ui/input";
+import { PaymentDialog } from "@/components/payments/PaymentDialog";
 
 interface ReservationDetailsProps {
   reservation: any;
@@ -53,6 +64,10 @@ export default function ReservationDetails({
   const [confirmingPayment, setConfirmingPayment] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
+  const [showPaymentMethodDialog, setShowPaymentMethodDialog] = useState(false);
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<string>("stripe");
+  const [paymentReference, setPaymentReference] = useState("");
 
   if (!reservation) return null;
 
@@ -81,27 +96,80 @@ export default function ReservationDetails({
     );
   };
 
-  const handleConfirmPayment = async () => {
+  const handlePaymentMethodSelection = () => {
+    if (paymentMethod === "stripe") {
+      setShowPaymentMethodDialog(false);
+      setShowPaymentDialog(true);
+    } else {
+      handleManualPayment();
+    }
+  };
+
+  const handleManualPayment = async () => {
     setConfirmingPayment(true);
     try {
-      const { error } = await supabase.functions.invoke("confirm-payment", {
-        body: {
-          hotelId: reservation.hotel_id,
-          reservationId: reservation.id,
-          paymentIntentId: reservation.payment_intent_id || "manual-payment",
-        },
-      });
+      // Crear cargo en el folio
+      const { error: chargeError } = await supabase
+        .from("folio_charges")
+        .insert({
+          folio_id: reservation.folio_id,
+          description: `Pago de reserva - ${paymentMethod === "cash" ? "Efectivo" : "Tarjeta"}${paymentReference ? ` - Ref: ${paymentReference}` : ""}`,
+          amount_cents: -reservation.total_amount_cents,
+        });
+
+      if (chargeError) {
+        console.error("Error creating folio charge:", chargeError);
+        throw new Error(`Error al crear cargo: ${chargeError.message}${chargeError.hint ? ` - ${chargeError.hint}` : ''}`);
+      }
+
+      // Actualizar estado de reserva a CONFIRMED
+      const { error: resError } = await supabase
+        .from("reservations")
+        .update({
+          status: "CONFIRMED",
+          metadata: {
+            ...(reservation.metadata || {}),
+            payment_method: paymentMethod,
+            payment_reference: paymentReference,
+            paid_at: new Date().toISOString()
+          }
+        })
+        .eq("id", reservation.id);
+
+      if (resError) {
+        console.error("Error updating reservation:", resError);
+        throw new Error(`Error al confirmar reserva: ${resError.message}${resError.hint ? ` - ${resError.hint}` : ''}`);
+      }
+
+      toast.success("Pago registrado y reserva confirmada exitosamente");
+      setShowPaymentMethodDialog(false);
+      setPaymentReference("");
+      onUpdate();
+      onOpenChange(false);
+    } catch (error: any) {
+      console.error("Manual payment error details:", error);
+      toast.error(error.message || "Error al registrar el pago");
+    } finally {
+      setConfirmingPayment(false);
+    }
+  };
+
+  const handlePaymentSuccess = async () => {
+    try {
+      // Update reservation status to CONFIRMED
+      const { error } = await supabase
+        .from("reservations")
+        .update({ status: "CONFIRMED" })
+        .eq("id", reservation.id);
 
       if (error) throw error;
 
-      toast.success("Pago confirmado exitosamente");
+      toast.success("Pago procesado y reserva confirmada exitosamente");
       onUpdate();
       onOpenChange(false);
     } catch (error: any) {
       console.error("Error confirming payment:", error);
       toast.error(error.message || "Error al confirmar el pago");
-    } finally {
-      setConfirmingPayment(false);
     }
   };
 
@@ -272,12 +340,11 @@ export default function ReservationDetails({
             <div className="flex gap-2 pt-4">
               {reservation.status === "PENDING_PAYMENT" && (
                 <Button
-                  onClick={handleConfirmPayment}
-                  disabled={confirmingPayment}
+                  onClick={() => setShowPaymentMethodDialog(true)}
                   className="flex-1 bg-success hover:bg-success/90"
                 >
-                  <CheckCircle className="h-4 w-4 mr-2" />
-                  {confirmingPayment ? "Procesando..." : "Confirmar Pago"}
+                  <CreditCard className="h-4 w-4 mr-2" />
+                  Procesar Pago
                 </Button>
               )}
 
@@ -317,6 +384,103 @@ export default function ReservationDetails({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Payment Method Selection Dialog */}
+      <Dialog open={showPaymentMethodDialog} onOpenChange={setShowPaymentMethodDialog}>
+        <SecondaryDialogContent>
+          <SecondaryDialogHeader>
+            <SecondaryDialogTitle>Seleccionar Método de Pago</SecondaryDialogTitle>
+            <SecondaryDialogDescription>
+              Total a pagar: <span className="font-bold text-lg">{formatCurrency(reservation.total_amount_cents)}</span>
+            </SecondaryDialogDescription>
+          </SecondaryDialogHeader>
+
+          <div className="space-y-4 py-4">
+            <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod}>
+              <div className="space-y-3">
+                <div className="flex items-center space-x-3 border rounded-lg p-4 hover:bg-muted/50 cursor-pointer">
+                  <RadioGroupItem value="cash" id="cash" />
+                  <Label htmlFor="cash" className="flex-1 cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <Banknote className="h-5 w-5 text-green-600" />
+                      <div>
+                        <div className="font-semibold">Efectivo</div>
+                        <div className="text-sm text-muted-foreground">Pago en efectivo en recepción</div>
+                      </div>
+                    </div>
+                  </Label>
+                </div>
+
+                <div className="flex items-center space-x-3 border rounded-lg p-4 hover:bg-muted/50 cursor-pointer">
+                  <RadioGroupItem value="card" id="card" />
+                  <Label htmlFor="card" className="flex-1 cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <CreditCard className="h-5 w-5 text-blue-600" />
+                      <div>
+                        <div className="font-semibold">Tarjeta (Terminal física)</div>
+                        <div className="text-sm text-muted-foreground">Pago con tarjeta en terminal</div>
+                      </div>
+                    </div>
+                  </Label>
+                </div>
+
+                <div className="flex items-center space-x-3 border rounded-lg p-4 hover:bg-muted/50 cursor-pointer">
+                  <RadioGroupItem value="stripe" id="stripe" />
+                  <Label htmlFor="stripe" className="flex-1 cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <DollarSign className="h-5 w-5 text-purple-600" />
+                      <div>
+                        <div className="font-semibold">Stripe (Online)</div>
+                        <div className="text-sm text-muted-foreground">Pago seguro online con tarjeta</div>
+                      </div>
+                    </div>
+                  </Label>
+                </div>
+              </div>
+            </RadioGroup>
+
+            {paymentMethod !== "stripe" && (
+              <div className="space-y-2">
+                <Label htmlFor="reference">Referencia de Transacción (opcional)</Label>
+                <Input
+                  id="reference"
+                  placeholder="Ej: Recibo #12345, Autorización 678901"
+                  value={paymentReference}
+                  onChange={(e) => setPaymentReference(e.target.value)}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2 justify-end">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowPaymentMethodDialog(false);
+                setPaymentReference("");
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button
+              onClick={handlePaymentMethodSelection}
+              disabled={confirmingPayment}
+              className="bg-success hover:bg-success/90"
+            >
+              {confirmingPayment ? "Procesando..." : paymentMethod === "stripe" ? "Ir a Pago Online" : "Confirmar Pago"}
+            </Button>
+          </div>
+        </SecondaryDialogContent>
+      </Dialog>
+
+      <PaymentDialog
+        open={showPaymentDialog}
+        onOpenChange={setShowPaymentDialog}
+        amount={reservation.total_amount_cents}
+        currency={reservation.currency}
+        reservationId={reservation.id}
+        onSuccess={handlePaymentSuccess}
+      />
     </>
   );
 }

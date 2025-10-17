@@ -4,7 +4,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HotelSettings } from "@/components/settings/HotelSettings";
 import { RoomTypesSettings } from "@/components/settings/RoomTypesSettings";
 import { RoomsSettings } from "@/components/settings/RoomsSettings";
-import { Building2, BedDouble, DoorOpen } from "lucide-react";
+import { RatePlansSettings } from "@/components/settings/RatePlansSettings";
+import { PromoCodesSettings } from "@/components/settings/PromoCodesSettings";
+import { Building2, BedDouble, DoorOpen, Percent, Tag } from "lucide-react";
 
 export default function Settings() {
   return (
@@ -17,7 +19,7 @@ export default function Settings() {
       </div>
 
       <Tabs defaultValue="hotel" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3 lg:w-[400px]">
+        <TabsList className="grid w-full grid-cols-5 lg:w-auto">
           <TabsTrigger value="hotel" className="flex items-center gap-2">
             <Building2 className="h-4 w-4" />
             <span className="hidden sm:inline">Hotel</span>
@@ -29,6 +31,14 @@ export default function Settings() {
           <TabsTrigger value="rooms" className="flex items-center gap-2">
             <DoorOpen className="h-4 w-4" />
             <span className="hidden sm:inline">Habitaciones</span>
+          </TabsTrigger>
+          <TabsTrigger value="rate-plans" className="flex items-center gap-2">
+            <Percent className="h-4 w-4" />
+            <span className="hidden sm:inline">Tarifas</span>
+          </TabsTrigger>
+          <TabsTrigger value="promo-codes" className="flex items-center gap-2">
+            <Tag className="h-4 w-4" />
+            <span className="hidden sm:inline">Promos</span>
           </TabsTrigger>
         </TabsList>
 
@@ -42,6 +52,14 @@ export default function Settings() {
 
         <TabsContent value="rooms" className="space-y-4">
           <RoomsSettings />
+        </TabsContent>
+
+        <TabsContent value="rate-plans" className="space-y-4">
+          <RatePlansSettings />
+        </TabsContent>
+
+        <TabsContent value="promo-codes" className="space-y-4">
+          <PromoCodesSettings />
         </TabsContent>
       </Tabs>
     </div>

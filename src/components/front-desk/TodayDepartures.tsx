@@ -52,38 +52,47 @@ export default function TodayDepartures() {
   const handleCheckOut = async () => {
     if (!selectedReservation) return;
 
+    // Verificar si hay balance pendiente
+    const balance = selectedReservation.folios?.[0]?.balance_cents || 0;
+    if (balance > 0) {
+      toast.error(`No se puede hacer check-out con balance pendiente de RD$${(balance / 100).toFixed(2)}`);
+      return;
+    }
+
     try {
-      const roomNumber = selectedReservation.metadata?.room_number;
+      const { data: { session } } = await supabase.auth.getSession();
 
-      // Actualizar estado de reserva
-      const { error: resError } = await supabase
-        .from("reservations")
-        .update({ 
-          status: "CHECKED_OUT",
-          metadata: { 
-            ...(selectedReservation.metadata || {}), 
-            checked_out_at: new Date().toISOString()
-          }
-        })
-        .eq("id", selectedReservation.id);
-
-      if (resError) throw resError;
-
-      // Liberar habitación - marcar como mantenimiento para limpieza
-      if (roomNumber) {
-        const { error: roomError } = await supabase
-          .from("rooms")
-          .update({ status: "MAINTENANCE" })
-          .eq("id", roomNumber);
-
-        if (roomError) throw roomError;
+      if (!session) {
+        throw new Error("No hay sesión activa");
       }
 
-      toast.success("Check-out realizado exitosamente");
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/check-out`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            reservationId: selectedReservation.id,
+          }),
+        }
+      );
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.error || "Error al realizar check-out");
+      }
+
+      toast.success("Check-out realizado exitosamente. Habitación lista para limpieza.");
       setSelectedReservation(null);
       refetch();
     } catch (error: any) {
-      toast.error("Error al realizar check-out: " + error.message);
+      console.error("Check-out error:", error);
+      toast.error(error.message || "Error al realizar check-out");
     }
   };
 

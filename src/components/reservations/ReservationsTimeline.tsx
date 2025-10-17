@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Users, Calendar, DollarSign } from "lucide-react";
+import { ChevronLeft, ChevronRight, Users, Calendar, DollarSign, Search, X } from "lucide-react";
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, addMonths, subMonths, parseISO, isSameDay } from "date-fns";
 import { es } from "date-fns/locale";
 import ReservationDetails from "./ReservationDetails";
@@ -20,10 +21,12 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
   const [roomTypes, setRoomTypes] = useState<any[]>([]);
   const [rooms, setRooms] = useState<any[]>([]);
   const [reservations, setReservations] = useState<any[]>([]);
+  const [filteredReservations, setFilteredReservations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReservation, setSelectedReservation] = useState<any>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [expandedTypes, setExpandedTypes] = useState<Set<string>>(new Set());
+  const [searchTerm, setSearchTerm] = useState("");
 
   useEffect(() => {
     loadData();
@@ -64,10 +67,28 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
     else setRooms(roomsData.data || []);
 
     if (reservationsData.error) console.error("Error loading reservations:", reservationsData.error);
-    else setReservations(reservationsData.data || []);
+    else {
+      setReservations(reservationsData.data || []);
+      setFilteredReservations(reservationsData.data || []);
+    }
 
     setLoading(false);
   };
+
+  // Filtrar reservas cuando cambia el término de búsqueda
+  useEffect(() => {
+    if (!searchTerm.trim()) {
+      setFilteredReservations(reservations);
+    } else {
+      const term = searchTerm.toLowerCase();
+      const filtered = reservations.filter(r =>
+        r.customer?.name?.toLowerCase().includes(term) ||
+        r.customer?.email?.toLowerCase().includes(term) ||
+        r.id?.toLowerCase().includes(term)
+      );
+      setFilteredReservations(filtered);
+    }
+  }, [searchTerm, reservations]);
 
   const getDaysInMonth = () => {
     const start = startOfMonth(currentMonth);
@@ -122,7 +143,7 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
   };
 
   const getReservationsForRoomType = (roomTypeId: string) => {
-    return reservations.filter(r => r.room_type_id === roomTypeId);
+    return filteredReservations.filter(r => r.room_type_id === roomTypeId);
   };
 
   const getRoomsForType = (roomTypeId: string) => {
@@ -133,7 +154,8 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
     const typeRooms = getRoomsForType(roomTypeId);
     const totalRooms = typeRooms.length;
     const dayStr = format(day, "yyyy-MM-dd");
-    
+
+    // Usar todas las reservas (no filtradas) para cálculo de disponibilidad
     const reservedCount = reservations.filter(r => {
       if (r.room_type_id !== roomTypeId) return false;
       const checkIn = parseISO(r.check_in);
@@ -204,24 +226,58 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
       <CardHeader className="space-y-4">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <CardTitle>Timeline de Reservas</CardTitle>
-          
-          {/* Year selector */}
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground">Año:</span>
-            <Select value={currentYear.toString()} onValueChange={(value) => selectYear(parseInt(value))}>
-              <SelectTrigger className="w-[120px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {years.map((year) => (
-                  <SelectItem key={year} value={year.toString()}>
-                    {year}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+
+          <div className="flex items-center gap-4">
+            {/* Search bar */}
+            <div className="relative w-64">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por nombre, email o ID..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 pr-10"
+              />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm("")}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+
+            {/* Year selector */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-muted-foreground">Año:</span>
+              <Select value={currentYear.toString()} onValueChange={(value) => selectYear(parseInt(value))}>
+                <SelectTrigger className="w-[120px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {years.map((year) => (
+                    <SelectItem key={year} value={year.toString()}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
         </div>
+
+        {/* Results count when searching */}
+        {searchTerm && (
+          <div className="text-sm text-muted-foreground">
+            {filteredReservations.length === 0 ? (
+              <span>No se encontraron reservas que coincidan con "{searchTerm}"</span>
+            ) : (
+              <span>
+                Mostrando {filteredReservations.length} de {reservations.length} reservas
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Month selector */}
         <div className="flex items-center gap-2">
@@ -315,10 +371,108 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
                   })}
                 </div>
 
+                {/* Pending reservations row (sin habitación asignada) */}
+                {isExpanded && (() => {
+                  const pendingReservations = filteredReservations.filter(r =>
+                    r.room_type_id === roomType.id && !r.room_id && r.status !== 'CANCELLED'
+                  );
+
+                  if (pendingReservations.length === 0) return null;
+
+                  return (
+                    <div
+                      key={`${roomType.id}-pending`}
+                      className="grid gap-0 bg-blue-50/30"
+                      style={{ gridTemplateColumns: `200px repeat(${days.length}, minmax(50px, 1fr))` }}
+                    >
+                      <div className="sticky left-0 bg-blue-50 z-10 p-2 border-b border-r text-sm flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-blue-500" />
+                        <span className="font-medium text-blue-700">Sin asignar ({pendingReservations.length})</span>
+                      </div>
+
+                      <div className="relative col-span-full border-b">
+                        <div className="grid h-12" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(50px, 1fr))` }}>
+                          {days.map((_, idx) => (
+                            <div key={idx} className="border-r border-border/30" />
+                          ))}
+                        </div>
+
+                        {pendingReservations.map((reservation) => {
+                          const position = getReservationPosition(reservation, days);
+                          if (!position) return null;
+
+                          return (
+                            <Tooltip key={reservation.id}>
+                              <TooltipTrigger asChild>
+                                <div
+                                  className={`absolute top-1 h-10 rounded ${getStatusColor(
+                                    reservation.status
+                                  )} text-white text-xs px-2 py-1 cursor-pointer transition-all flex items-center truncate shadow-sm`}
+                                  style={{
+                                    left: `${(position.start / days.length) * 100}%`,
+                                    width: `${(position.span / days.length) * 100}%`,
+                                  }}
+                                  onClick={() => {
+                                    setSelectedReservation(reservation);
+                                    setDetailsOpen(true);
+                                  }}
+                                >
+                                  <span className="truncate font-medium">
+                                    {reservation.customer?.name || 'Sin nombre'}
+                                  </span>
+                                </div>
+                              </TooltipTrigger>
+                              <TooltipContent className="max-w-xs">
+                                <div className="space-y-2">
+                                  <div className="font-semibold text-base">
+                                    {reservation.customer?.name || 'Sin nombre'}
+                                  </div>
+                                  <div className="space-y-1 text-sm">
+                                    <div className="flex items-center gap-2">
+                                      <Calendar className="h-3 w-3" />
+                                      <span>
+                                        {format(parseISO(reservation.check_in), "dd MMM", { locale: es })} - {format(parseISO(reservation.check_out), "dd MMM yyyy", { locale: es })}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <Users className="h-3 w-3" />
+                                      <span>{reservation.guests} huésped{reservation.guests !== 1 ? 'es' : ''}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <DollarSign className="h-3 w-3" />
+                                      <span>{formatCurrency(reservation.total_amount_cents, reservation.currency)}</span>
+                                    </div>
+                                    <div className="pt-1 border-t mt-2">
+                                      <span className="text-xs font-medium">
+                                        Estado: {getStatusLabel(reservation.status)}
+                                      </span>
+                                    </div>
+                                    <div className="text-xs text-blue-600 font-medium">
+                                      Habitación pendiente de asignar
+                                    </div>
+                                    {reservation.customer?.email && (
+                                      <div className="text-xs text-muted-foreground">
+                                        {reservation.customer.email}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+                              </TooltipContent>
+                            </Tooltip>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+
                 {/* Individual rooms */}
                 {isExpanded && typeRooms.map((room) => {
-                  const roomReservations = reservations.filter(r => r.room_type_id === roomType.id);
-                  
+                  // Solo mostrar reservas asignadas específicamente a esta habitación
+                  const roomReservations = filteredReservations.filter(r =>
+                    r.room_type_id === roomType.id && r.room_id === room.id
+                  );
+
                   return (
                     <div
                       key={room.id}
@@ -335,14 +489,14 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
                         }`} />
                         <span className="font-medium">{room.room_number}</span>
                       </div>
-                      
+
                       <div className="relative col-span-full border-b">
                         <div className="grid h-12" style={{ gridTemplateColumns: `repeat(${days.length}, minmax(50px, 1fr))` }}>
                           {days.map((_, idx) => (
                             <div key={idx} className="border-r border-border/30" />
                           ))}
                         </div>
-                        
+
                         {roomReservations.map((reservation) => {
                           const position = getReservationPosition(reservation, days);
                           if (!position) return null;

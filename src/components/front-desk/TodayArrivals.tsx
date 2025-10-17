@@ -47,7 +47,7 @@ export default function TodayArrivals() {
         `)
         .eq("hotel_id", userRoles.hotel_id)
         .eq("check_in", today)
-        .in("status", ["CONFIRMED", "PENDING_PAYMENT"])
+        .eq("status", "CONFIRMED")
         .order("created_at", { ascending: true });
 
       if (error) throw error;
@@ -87,35 +87,41 @@ export default function TodayArrivals() {
     }
 
     try {
-      // Actualizar estado de reserva
-      const { error: resError } = await supabase
-        .from("reservations")
-        .update({ 
-          status: "CHECKED_IN",
-          metadata: { 
-            ...(selectedReservation.metadata || {}), 
-            room_number: selectedRoom,
-            checked_in_at: new Date().toISOString()
-          }
-        })
-        .eq("id", selectedReservation.id);
+      const { data: { session } } = await supabase.auth.getSession();
 
-      if (resError) throw resError;
+      if (!session) {
+        throw new Error("No hay sesión activa");
+      }
 
-      // Actualizar estado de habitación
-      const { error: roomError } = await supabase
-        .from("rooms")
-        .update({ status: "OCCUPIED" })
-        .eq("id", selectedRoom);
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/check-in`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            reservationId: selectedReservation.id,
+            roomId: selectedRoom,
+          }),
+        }
+      );
 
-      if (roomError) throw roomError;
+      const responseData = await response.json();
 
-      toast.success("Check-in realizado exitosamente");
+      if (!response.ok) {
+        throw new Error(responseData.error || "Error al realizar check-in");
+      }
+
+      toast.success(`Check-in realizado exitosamente - Habitación ${responseData.roomNumber}`);
       setSelectedReservation(null);
       setSelectedRoom("");
       refetch();
     } catch (error: any) {
-      toast.error("Error al realizar check-in: " + error.message);
+      console.error("Check-in error:", error);
+      toast.error(error.message || "Error al realizar check-in");
     }
   };
 

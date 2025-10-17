@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Users, UserPlus, Mail, Phone, Shield } from "lucide-react";
+import { Users, UserPlus, Mail, Phone, Shield, Eye, Pencil, Trash2 } from "lucide-react";
 import {
   Table,
   TableBody,
@@ -26,7 +26,18 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
+  DialogFooter,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
@@ -77,6 +88,11 @@ interface UserManagementProps {
 export default function UserManagement({ hotelId }: UserManagementProps) {
   const queryClient = useQueryClient();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isDetailsDialogOpen, setIsDetailsDialogOpen] = useState(false);
+  const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<UserWithRole | null>(null);
+  const [editUser, setEditUser] = useState<Partial<UserWithRole>>({});
   const [newUser, setNewUser] = useState<NewUser>({
     email: "",
     password: "",
@@ -141,6 +157,49 @@ export default function UserManagement({ hotelId }: UserManagementProps) {
     },
   });
 
+  const updateUserMutation = useMutation({
+    mutationFn: async (userData: Partial<UserWithRole> & { id: string }) => {
+      const { error } = await supabase
+        .from("user_roles")
+        .update({
+          full_name: userData.full_name,
+          phone: userData.phone,
+          role: userData.role,
+        })
+        .eq("id", userData.id);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["hotel-users", hotelId] });
+      setIsEditDialogOpen(false);
+      toast.success("Usuario actualizado correctamente");
+    },
+    onError: (error) => {
+      toast.error("Error al actualizar usuario: " + error.message);
+    },
+  });
+
+  const deleteUserMutation = useMutation({
+    mutationFn: async (userId: string) => {
+      const { error } = await supabase
+        .from("user_roles")
+        .delete()
+        .eq("id", userId);
+
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["hotel-users", hotelId] });
+      setIsDeleteDialogOpen(false);
+      setSelectedUser(null);
+      toast.success("Usuario eliminado correctamente");
+    },
+    onError: (error) => {
+      toast.error("Error al eliminar usuario: " + error.message);
+    },
+  });
+
   const handleRoleChange = (userId: string, newRole: AppRole) => {
     updateRoleMutation.mutate({ userId, newRole });
   };
@@ -148,6 +207,34 @@ export default function UserManagement({ hotelId }: UserManagementProps) {
   const handleCreateUser = (e: React.FormEvent) => {
     e.preventDefault();
     createUserMutation.mutate(newUser);
+  };
+
+  const handleViewDetails = (user: UserWithRole) => {
+    setSelectedUser(user);
+    setIsDetailsDialogOpen(true);
+  };
+
+  const handleEditUser = (user: UserWithRole) => {
+    setEditUser(user);
+    setIsEditDialogOpen(true);
+  };
+
+  const handleDeleteUser = (user: UserWithRole) => {
+    setSelectedUser(user);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleSaveEdit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editUser.id) {
+      updateUserMutation.mutate(editUser as Partial<UserWithRole> & { id: string });
+    }
+  };
+
+  const confirmDelete = () => {
+    if (selectedUser) {
+      deleteUserMutation.mutate(selectedUser.id);
+    }
   };
 
   if (isLoading) {
@@ -253,6 +340,7 @@ export default function UserManagement({ hotelId }: UserManagementProps) {
               <TableHead>Rol Actual</TableHead>
               <TableHead>Cambiar Rol</TableHead>
               <TableHead>Desde</TableHead>
+              <TableHead className="text-right">Acciones</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -299,6 +387,35 @@ export default function UserManagement({ hotelId }: UserManagementProps) {
                 <TableCell className="text-sm text-muted-foreground">
                   {new Date(user.created_at).toLocaleDateString()}
                 </TableCell>
+                <TableCell className="text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleViewDetails(user)}
+                      title="Ver detalles"
+                    >
+                      <Eye className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleEditUser(user)}
+                      title="Editar usuario"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleDeleteUser(user)}
+                      title="Eliminar usuario"
+                      className="text-destructive hover:text-destructive"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -311,6 +428,127 @@ export default function UserManagement({ hotelId }: UserManagementProps) {
           </div>
         )}
       </CardContent>
+
+      {/* Dialog de Detalles */}
+      <Dialog open={isDetailsDialogOpen} onOpenChange={setIsDetailsDialogOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Detalles del Usuario</DialogTitle>
+            <DialogDescription>
+              Información completa del usuario seleccionado
+            </DialogDescription>
+          </DialogHeader>
+          {selectedUser && (
+            <div className="space-y-4">
+              <div>
+                <Label className="text-sm text-muted-foreground">Nombre Completo</Label>
+                <p className="font-medium">{selectedUser.full_name || "No especificado"}</p>
+              </div>
+              <div>
+                <Label className="text-sm text-muted-foreground">Teléfono</Label>
+                <p className="font-medium">{selectedUser.phone || "No especificado"}</p>
+              </div>
+              <div>
+                <Label className="text-sm text-muted-foreground">Rol</Label>
+                <Badge className={`${ROLE_COLORS[selectedUser.role]} text-white mt-1`}>
+                  {ROLE_LABELS[selectedUser.role]}
+                </Badge>
+              </div>
+              <div>
+                <Label className="text-sm text-muted-foreground">Usuario ID</Label>
+                <p className="font-mono text-xs">{selectedUser.user_id}</p>
+              </div>
+              <div>
+                <Label className="text-sm text-muted-foreground">Fecha de Creación</Label>
+                <p className="font-medium">
+                  {new Date(selectedUser.created_at).toLocaleDateString('es-DO', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
+                  })}
+                </p>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de Editar */}
+      <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Editar Usuario</DialogTitle>
+            <DialogDescription>
+              Actualiza la información del usuario
+            </DialogDescription>
+          </DialogHeader>
+          <form onSubmit={handleSaveEdit} className="space-y-4">
+            <div>
+              <Label htmlFor="edit_full_name">Nombre Completo</Label>
+              <Input
+                id="edit_full_name"
+                value={editUser.full_name || ""}
+                onChange={(e) => setEditUser({ ...editUser, full_name: e.target.value })}
+                required
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit_phone">Teléfono</Label>
+              <Input
+                id="edit_phone"
+                value={editUser.phone || ""}
+                onChange={(e) => setEditUser({ ...editUser, phone: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label htmlFor="edit_role">Rol</Label>
+              <Select
+                value={editUser.role}
+                onValueChange={(value: AppRole) => setEditUser({ ...editUser, role: value })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(ROLE_LABELS).map(([value, label]) => (
+                    <SelectItem key={value} value={value}>
+                      {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setIsEditDialogOpen(false)}>
+                Cancelar
+              </Button>
+              <Button type="submit">Guardar Cambios</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog de Confirmación de Eliminación */}
+      <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Estás seguro?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Esta acción no se puede deshacer. Se eliminará permanentemente el usuario{" "}
+              <span className="font-semibold">{selectedUser?.full_name}</span> y su acceso al sistema.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              className="bg-destructive hover:bg-destructive/90"
+            >
+              Eliminar Usuario
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
