@@ -35,22 +35,22 @@ export default function Profile() {
   // Handle payment success/cancel from Stripe redirect
   useEffect(() => {
     const payment = searchParams.get('payment');
-    
+
     if (payment === 'success') {
       toast.success('¡Pago procesado exitosamente! Tu suscripción se actualizará en unos momentos.', {
         duration: 5000,
       });
-      
+
       // Refetch subscription data after a short delay to allow webhook processing
       setTimeout(() => {
         queryClient.invalidateQueries({ queryKey: ['subscription'] });
         queryClient.invalidateQueries({ queryKey: ['payment-method'] });
         queryClient.invalidateQueries({ queryKey: ['payment-history'] });
       }, 2000);
-      
+
       // Clean up URL and switch to subscription tab
       setSearchParams({});
-      
+
       // Auto-switch to subscription tab after payment
       const tabTrigger = document.querySelector('[value="subscription"]') as HTMLButtonElement;
       if (tabTrigger) {
@@ -127,6 +127,39 @@ export default function Profile() {
       return roleData;
     },
   });
+
+  // Ensure subscription exists for hotel
+  useEffect(() => {
+    const ensureSubscription = async () => {
+      if (!userRole?.hotel_id) return;
+
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+
+        const response = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/ensure-subscription`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ hotelId: userRole.hotel_id }),
+          }
+        );
+
+        if (response.ok) {
+          // Refetch subscription data
+          queryClient.invalidateQueries({ queryKey: ['subscription'] });
+        }
+      } catch (error) {
+        console.error('Error ensuring subscription:', error);
+      }
+    };
+
+    ensureSubscription();
+  }, [userRole?.hotel_id, queryClient]);
 
   const handleSaveName = async () => {
     if (!user?.id || !fullName.trim()) {
