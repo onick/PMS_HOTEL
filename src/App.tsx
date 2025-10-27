@@ -23,41 +23,47 @@ const CRM = lazy(() => import("./pages/dashboard/CRM"));
 const Analytics = lazy(() => import("./pages/dashboard/Analytics"));
 const Security = lazy(() => import("./pages/dashboard/Security"));
 const Settings = lazy(() => import("./pages/dashboard/Settings"));
+const Profile = lazy(() => import("./pages/dashboard/Profile"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 const queryClient = new QueryClient();
 
-const App = () => (
-  <ErrorBoundary>
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Sonner />
-        <BrowserRouter>
-          <Suspense fallback={<DashboardSkeleton />}>
-            <Routes>
-              <Route path="/" element={<Index />} />
-              <Route path="/auth" element={<Auth />} />
-              <Route path="/dashboard" element={<Dashboard />}>
-                <Route index element={<DashboardHome />} />
-                <Route path="reservations" element={<Reservations />} />
-                <Route path="front-desk" element={<FrontDesk />} />
-                <Route path="housekeeping" element={<Housekeeping />} />
-                <Route path="billing" element={<Billing />} />
-                <Route path="channels" element={<Channels />} />
-                <Route path="crm" element={<CRM />} />
-                <Route path="analytics" element={<Analytics />} />
-                <Route path="security" element={<Security />} />
-                <Route path="settings" element={<Settings />} />
-              </Route>
-              {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </Suspense>
-        </BrowserRouter>
-      </TooltipProvider>
-    </QueryClientProvider>
-  </ErrorBoundary>
-);
+const App = () => {
+  console.log('🎨 App component rendering...');
+
+  return (
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <Toaster />
+          <Sonner />
+          <BrowserRouter>
+            <Suspense fallback={<DashboardSkeleton />}>
+              <Routes>
+                <Route path="/" element={<Index />} />
+                <Route path="/auth" element={<Auth />} />
+                <Route path="/dashboard" element={<Dashboard />}>
+                  <Route index element={<DashboardHome />} />
+                  <Route path="reservations" element={<Reservations />} />
+                  <Route path="front-desk" element={<FrontDesk />} />
+                  <Route path="housekeeping" element={<Housekeeping />} />
+                  <Route path="billing" element={<Billing />} />
+                  <Route path="channels" element={<Channels />} />
+                  <Route path="crm" element={<CRM />} />
+                  <Route path="analytics" element={<Analytics />} />
+                  <Route path="security" element={<Security />} />
+                  <Route path="settings" element={<Settings />} />
+                  <Route path="profile" element={<Profile />} />
+                </Route>
+                {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </Suspense>
+          </BrowserRouter>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
+  );
+};
 
 export default App;

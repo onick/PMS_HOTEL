@@ -153,6 +153,10 @@ const Dashboard = () => {
                       </div>
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => navigate('/dashboard/profile')}>
+                      <User className="mr-2 h-4 w-4" />
+                      <span>Mi Perfil</span>
+                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
                       {theme === "dark" ? (
                         <>

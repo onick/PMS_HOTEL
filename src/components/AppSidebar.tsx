@@ -27,68 +27,80 @@ import {
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { supabase } from "@/integrations/supabase/client";
 import { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { usePermissions } from "@/hooks/usePermissions";
 
 const mainItems = [
-  { 
-    title: "Dashboard", 
-    url: "/dashboard", 
+  {
+    title: "Dashboard",
+    url: "/dashboard",
     icon: Home,
-    color: "text-primary"
+    color: "text-primary",
+    module: "dashboard"
   },
-  { 
-    title: "Reservas", 
-    url: "/dashboard/reservations", 
+  {
+    title: "Reservas",
+    url: "/dashboard/reservations",
     icon: CalendarDays,
-    color: "text-reservations"
+    color: "text-reservations",
+    module: "reservations"
   },
-  { 
-    title: "Front Desk", 
-    url: "/dashboard/front-desk", 
+  {
+    title: "Front Desk",
+    url: "/dashboard/front-desk",
     icon: Hotel,
-    color: "text-front-desk"
+    color: "text-front-desk",
+    module: "front-desk"
   },
-  { 
-    title: "Housekeeping", 
-    url: "/dashboard/housekeeping", 
+  {
+    title: "Housekeeping",
+    url: "/dashboard/housekeeping",
     icon: BedDouble,
-    color: "text-housekeeping"
+    color: "text-housekeeping",
+    module: "housekeeping"
   },
-  { 
-    title: "Facturación", 
-    url: "/dashboard/billing", 
+  {
+    title: "Facturación",
+    url: "/dashboard/billing",
     icon: CreditCard,
-    color: "text-billing"
+    color: "text-billing",
+    module: "billing"
   },
-  { 
-    title: "Channel Manager", 
-    url: "/dashboard/channels", 
+  {
+    title: "Channel Manager",
+    url: "/dashboard/channels",
     icon: Network,
-    color: "text-channel-manager"
+    color: "text-channel-manager",
+    module: "channels"
   },
-  { 
-    title: "CRM", 
-    url: "/dashboard/crm", 
+  {
+    title: "CRM",
+    url: "/dashboard/crm",
     icon: Users,
-    color: "text-crm"
+    color: "text-crm",
+    module: "crm"
   },
-  { 
-    title: "Analytics", 
-    url: "/dashboard/analytics", 
+  {
+    title: "Analytics",
+    url: "/dashboard/analytics",
     icon: BarChart3,
-    color: "text-analytics"
+    color: "text-analytics",
+    module: "reports"
   },
 ];
 
 const settingsItems = [
-  { 
-    title: "Seguridad", 
-    url: "/dashboard/security", 
+  {
+    title: "Seguridad",
+    url: "/dashboard/security",
     icon: Shield,
+    module: "admin"
   },
-  { 
-    title: "Configuración", 
-    url: "/dashboard/settings", 
+  {
+    title: "Configuración",
+    url: "/dashboard/settings",
     icon: Settings,
+    module: "settings"
   },
 ];
 
@@ -98,6 +110,26 @@ export function AppSidebar() {
   const collapsed = state === "collapsed";
   const currentPath = location.pathname;
   const [user, setUser] = useState<any>(null);
+
+  // Get hotel_id
+  const { data: userRoles } = useQuery({
+    queryKey: ["user-roles-sidebar"],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+
+      const { data, error } = await supabase
+        .from("user_roles")
+        .select("hotel_id")
+        .eq("user_id", user.id)
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+  });
+
+  const { canAccessModule, isAdmin } = usePermissions(userRoles?.hotel_id);
 
   useEffect(() => {
     const getUser = async () => {
@@ -156,20 +188,22 @@ export function AppSidebar() {
           )}
           <SidebarGroupContent>
             <SidebarMenu>
-              {mainItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <NavLink 
-                      to={item.url} 
-                      end={item.url === "/dashboard"}
-                      className={getNavCls(item.url)}
-                    >
-                      <item.icon className={`h-5 w-5 ${item.color}`} />
-                      {!collapsed && <span>{item.title}</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {mainItems
+                .filter((item) => item.module === "dashboard" || canAccessModule(item.module))
+                .map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild>
+                      <NavLink
+                        to={item.url}
+                        end={item.url === "/dashboard"}
+                        className={getNavCls(item.url)}
+                      >
+                        <item.icon className={`h-5 w-5 ${item.color}`} />
+                        {!collapsed && <span>{item.title}</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -183,16 +217,18 @@ export function AppSidebar() {
           )}
           <SidebarGroupContent>
             <SidebarMenu>
-              {settingsItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <NavLink to={item.url} className={getNavCls(item.url)}>
-                      <item.icon className="h-5 w-5 text-muted-foreground" />
-                      {!collapsed && <span>{item.title}</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+              {settingsItems
+                .filter((item) => item.module === "settings" || canAccessModule(item.module) || isAdmin)
+                .map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton asChild>
+                      <NavLink to={item.url} className={getNavCls(item.url)}>
+                        <item.icon className="h-5 w-5 text-muted-foreground" />
+                        {!collapsed && <span>{item.title}</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -201,30 +237,37 @@ export function AppSidebar() {
       {/* Footer con usuario */}
       <SidebarFooter className="p-3 border-t border-sidebar-border">
         {collapsed ? (
-          <div className="flex justify-center">
-            <Avatar className="h-8 w-8">
-              <AvatarFallback className="bg-primary text-primary-foreground text-xs">
-                {getUserInitials()}
-              </AvatarFallback>
-            </Avatar>
-          </div>
-        ) : (
-          <div className="flex items-center gap-3 px-2">
-            <Avatar className="h-9 w-9">
-              <AvatarFallback className="bg-primary text-primary-foreground">
-                {getUserInitials()}
-              </AvatarFallback>
-            </Avatar>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-sidebar-foreground truncate">
-                Usuario
-              </p>
-              <p className="text-xs text-muted-foreground truncate">
-                {user?.email}
-              </p>
+          <NavLink to="/dashboard/profile" className={getNavCls("/dashboard/profile")}>
+            <div className="flex justify-center py-2">
+              <Avatar className="h-8 w-8">
+                <AvatarFallback className="bg-primary text-primary-foreground text-xs">
+                  {getUserInitials()}
+                </AvatarFallback>
+              </Avatar>
             </div>
-            <User className="h-4 w-4 text-muted-foreground" />
-          </div>
+          </NavLink>
+        ) : (
+          <NavLink
+            to="/dashboard/profile"
+            className={`${getNavCls("/dashboard/profile")} rounded-lg transition-colors`}
+          >
+            <div className="flex items-center gap-3 px-2 py-2">
+              <Avatar className="h-9 w-9">
+                <AvatarFallback className="bg-primary text-primary-foreground">
+                  {getUserInitials()}
+                </AvatarFallback>
+              </Avatar>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-medium text-sidebar-foreground truncate">
+                  Usuario
+                </p>
+                <p className="text-xs text-muted-foreground truncate">
+                  {user?.email}
+                </p>
+              </div>
+              <User className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </NavLink>
         )}
       </SidebarFooter>
     </Sidebar>

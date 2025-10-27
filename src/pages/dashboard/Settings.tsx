@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HotelSettings } from "@/components/settings/HotelSettings";
@@ -6,9 +8,28 @@ import { RoomTypesSettings } from "@/components/settings/RoomTypesSettings";
 import { RoomsSettings } from "@/components/settings/RoomsSettings";
 import { RatePlansSettings } from "@/components/settings/RatePlansSettings";
 import { PromoCodesSettings } from "@/components/settings/PromoCodesSettings";
-import { Building2, BedDouble, DoorOpen, Percent, Tag } from "lucide-react";
+import { SubscriptionPlans } from "@/components/subscription/SubscriptionPlans";
+import { Building2, BedDouble, DoorOpen, Percent, Tag, CreditCard } from "lucide-react";
 
 export default function Settings() {
+  // Get hotel_id from user
+  const { data: userRoles } = useQuery({
+    queryKey: ["user-roles-settings"],
+    queryFn: async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return null;
+
+      const { data, error } = await supabase
+        .from("user_roles")
+        .select("hotel_id")
+        .eq("user_id", user.id)
+        .single();
+
+      if (error) throw error;
+      return data;
+    },
+  });
+
   return (
     <div className="p-6 space-y-6">
       <div>
@@ -19,7 +40,7 @@ export default function Settings() {
       </div>
 
       <Tabs defaultValue="hotel" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5 lg:w-auto">
+        <TabsList className="grid w-full grid-cols-6 lg:w-auto">
           <TabsTrigger value="hotel" className="flex items-center gap-2">
             <Building2 className="h-4 w-4" />
             <span className="hidden sm:inline">Hotel</span>
@@ -39,6 +60,10 @@ export default function Settings() {
           <TabsTrigger value="promo-codes" className="flex items-center gap-2">
             <Tag className="h-4 w-4" />
             <span className="hidden sm:inline">Promos</span>
+          </TabsTrigger>
+          <TabsTrigger value="subscription" className="flex items-center gap-2">
+            <CreditCard className="h-4 w-4" />
+            <span className="hidden sm:inline">Suscripción</span>
           </TabsTrigger>
         </TabsList>
 
@@ -60,6 +85,12 @@ export default function Settings() {
 
         <TabsContent value="promo-codes" className="space-y-4">
           <PromoCodesSettings />
+        </TabsContent>
+
+        <TabsContent value="subscription" className="space-y-4">
+          {userRoles?.hotel_id && (
+            <SubscriptionPlans hotelId={userRoles.hotel_id} />
+          )}
         </TabsContent>
       </Tabs>
     </div>
