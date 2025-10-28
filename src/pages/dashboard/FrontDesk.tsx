@@ -5,6 +5,8 @@ import TodayDepartures from "@/components/front-desk/TodayDepartures";
 import InHouseGuests from "@/components/front-desk/InHouseGuests";
 import RoomStatus from "@/components/front-desk/RoomStatus";
 import NewReservationDialog from "@/components/reservations/NewReservationDialog";
+import WalkInDialog from "@/components/front-desk/WalkInDialog";
+import { PermissionGuard } from "@/components/auth/PermissionGuard";
 
 export default function FrontDesk() {
   // Get hotel_id from user
@@ -35,7 +37,14 @@ export default function FrontDesk() {
           </p>
         </div>
         {userRoles?.hotel_id && (
-          <NewReservationDialog hotelId={userRoles.hotel_id} />
+          <div className="flex gap-2">
+            <PermissionGuard module="front-desk" action="create" hotelId={userRoles.hotel_id}>
+              <WalkInDialog hotelId={userRoles.hotel_id} />
+            </PermissionGuard>
+            <PermissionGuard module="reservations" action="create" hotelId={userRoles.hotel_id}>
+              <NewReservationDialog hotelId={userRoles.hotel_id} />
+            </PermissionGuard>
+          </div>
         )}
       </div>
 

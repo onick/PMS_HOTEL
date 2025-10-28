@@ -72,21 +72,26 @@ export default function IncidentReports() {
 
       if (!userRoles) throw new Error("No hotel found");
 
-      const { data, error } = await supabase
+      const { data: userRolesList, error: rolesError } = await supabase
         .from("user_roles")
-        .select(`
-          user_id,
-          profiles:user_id (
-            id,
-            full_name
-          )
-        `)
+        .select("user_id")
         .eq("hotel_id", userRoles.hotel_id);
 
+      if (rolesError) throw rolesError;
+
+      const userIds = userRolesList?.map(ur => ur.user_id) || [];
+
+      if (userIds.length === 0) return [];
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .in("id", userIds);
+
       if (error) throw error;
-      return data?.map((ur: any) => ({
-        id: ur.user_id,
-        full_name: ur.profiles?.full_name || "Usuario sin nombre"
+      return data?.map((profile: any) => ({
+        id: profile.id,
+        full_name: profile.full_name || profile.id
       })) || [];
     },
   });
@@ -126,19 +131,35 @@ export default function IncidentReports() {
 
       if (!userRoles) throw new Error("No hotel found");
 
-      const { data, error } = await supabase
+      const { data: incidentsData, error } = await supabase
         .from("incidents")
-        .select(`
-          *,
-          rooms(room_number),
-          assigned_user:assigned_to(full_name),
-          reporter:reported_by(full_name)
-        `)
+        .select("*, rooms(room_number)")
         .eq("hotel_id", userRoles.hotel_id)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
-      return data as any as Incident[];
+
+      // Get unique user IDs for assigned_to and reported_by
+      const userIds = new Set<string>();
+      incidentsData?.forEach((inc: any) => {
+        if (inc.assigned_to) userIds.add(inc.assigned_to);
+        if (inc.reported_by) userIds.add(inc.reported_by);
+      });
+
+      // Fetch profiles for all users
+      const { data: profiles } = await supabase
+        .from("profiles")
+        .select("id, full_name")
+        .in("id", Array.from(userIds));
+
+      const profilesMap = new Map(profiles?.map(p => [p.id, p]) || []);
+
+      // Map incidents with user data
+      return incidentsData?.map((inc: any) => ({
+        ...inc,
+        assigned_user: inc.assigned_to ? profilesMap.get(inc.assigned_to) : null,
+        reporter: inc.reported_by ? profilesMap.get(inc.reported_by) : null,
+      })) as Incident[];
     },
   });
 

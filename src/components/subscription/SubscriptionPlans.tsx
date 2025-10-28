@@ -85,10 +85,19 @@ export function SubscriptionPlans({ hotelId }: SubscriptionPlansProps) {
         throw new Error(error.error || 'Error al crear checkout');
       }
 
-      const { url } = await response.json();
-      
-      // Redirect to Stripe Checkout
-      window.location.href = url;
+      const data = await response.json();
+
+      // If subscription was updated directly (no checkout needed)
+      if (data.message && data.redirect) {
+        toast.success('¡Plan actualizado exitosamente!');
+        // Refresh subscription data
+        setTimeout(() => {
+          window.location.href = data.redirect;
+        }, 1000);
+      } else if (data.url) {
+        // Redirect to Stripe Checkout for new subscription
+        window.location.href = data.url;
+      }
     } catch (error: any) {
       console.error('Error upgrading plan:', error);
       toast.error(error.message || 'Error al actualizar el plan');
@@ -162,11 +171,9 @@ export function SubscriptionPlans({ hotelId }: SubscriptionPlansProps) {
                   }
                 </p>
               </div>
-              {subscription.stripe_customer_id && (
-                <Button onClick={handleManageSubscription} variant="outline">
-                  Gestionar Suscripción
-                </Button>
-              )}
+              <Button onClick={handleManageSubscription} variant="outline">
+                Gestionar Suscripción
+              </Button>
             </div>
           </CardContent>
         </Card>

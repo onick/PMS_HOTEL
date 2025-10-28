@@ -57,21 +57,49 @@ serve(async (req) => {
       throw new Error("Only hotel owners can manage subscriptions");
     }
 
-    // Get Stripe customer ID
+    // Get Stripe customer ID and hotel info
     const { data: subscription, error: subError } = await supabase
       .from("subscriptions")
       .select("stripe_customer_id")
       .eq("hotel_id", hotelId)
       .single();
 
-    if (subError || !subscription?.stripe_customer_id) {
-      throw new Error("No Stripe customer found for this hotel");
+    if (subError) {
+      throw new Error("No subscription found for this hotel");
     }
 
-    // Create portal session
+    let customerId = subscription?.stripe_customer_id;
+
+    // If no Stripe customer exists yet, create one
+    if (!customerId) {
+      const { data: hotel } = await supabase
+        .from("hotels")
+        .select("name")
+        .eq("id", hotelId)
+        .single();
+
+      const customer = await stripe.customers.create({
+        email: user.email,
+        name: hotel?.name || "Hotel",
+        metadata: {
+          hotel_id: hotelId,
+          user_id: user.id,
+        },
+      });
+
+      // Update subscription with customer ID
+      await supabase
+        .from("subscriptions")
+        .update({ stripe_customer_id: customer.id })
+        .eq("hotel_id", hotelId);
+
+      customerId = customer.id;
+    }
+
+    // Create portal session with configuration
     const session = await stripe.billingPortal.sessions.create({
-      customer: subscription.stripe_customer_id,
-      return_url: `${req.headers.get("origin")}/dashboard/settings?tab=subscription`,
+      customer: customerId,
+      return_url: `${req.headers.get("origin")}/dashboard/profile?tab=subscription`,
     });
 
     return new Response(

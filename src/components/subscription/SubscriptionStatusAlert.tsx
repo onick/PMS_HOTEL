@@ -64,14 +64,12 @@ export function SubscriptionStatusAlert({ subscription, hotelId }: SubscriptionS
           <AlertTitle>Trial finaliza pronto</AlertTitle>
           <AlertDescription className="flex items-center justify-between">
             <span>
-              Tu período de prueba termina en {daysLeft} día{daysLeft !== 1 ? 's' : ''}. 
+              Tu período de prueba termina en {daysLeft} día{daysLeft !== 1 ? 's' : ''}.
               Agrega un método de pago para continuar sin interrupciones.
             </span>
-            {subscription.stripe_customer_id && (
-              <Button onClick={handleManageSubscription} size="sm" className="ml-4">
-                Agregar pago
-              </Button>
-            )}
+            <Button onClick={handleManageSubscription} size="sm" className="ml-4">
+              Agregar pago
+            </Button>
           </AlertDescription>
         </Alert>
       );

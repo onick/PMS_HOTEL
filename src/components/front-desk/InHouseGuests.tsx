@@ -29,10 +29,12 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import FolioDetails from "@/components/billing/FolioDetails";
 
 export default function InHouseGuests() {
   const [selectedGuest, setSelectedGuest] = useState<any>(null);
   const [checkingOut, setCheckingOut] = useState(false);
+  const [showFolioDialog, setShowFolioDialog] = useState(false);
 
   const { data: inHouse, refetch } = useQuery({
     queryKey: ["in-house-guests"],
@@ -54,7 +56,14 @@ export default function InHouseGuests() {
           folios (
             id,
             balance_cents,
-            currency
+            currency,
+            reservations (
+              id,
+              customer,
+              check_in,
+              check_out,
+              room_types (name)
+            )
           )
         `)
         .eq("hotel_id", userRoles.hotel_id)
@@ -317,6 +326,17 @@ export default function InHouseGuests() {
                       <p>El huésped debe saldar el balance antes de realizar check-out</p>
                     </div>
                   )}
+
+                  {selectedGuest.folios?.[0] && (
+                    <Button
+                      onClick={() => setShowFolioDialog(true)}
+                      className="w-full mt-3"
+                      variant="outline"
+                    >
+                      <Receipt className="h-4 w-4 mr-2" />
+                      Gestionar Folio
+                    </Button>
+                  )}
                 </div>
               </div>
 
@@ -371,6 +391,18 @@ export default function InHouseGuests() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Folio Management Dialog */}
+      {selectedGuest?.folios?.[0] && (
+        <FolioDetails
+          folio={selectedGuest.folios[0]}
+          open={showFolioDialog}
+          onClose={() => {
+            setShowFolioDialog(false);
+            refetch(); // Refresh guest data after folio changes
+          }}
+        />
+      )}
     </Card>
   );
 }

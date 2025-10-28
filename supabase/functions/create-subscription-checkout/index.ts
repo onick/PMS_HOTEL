@@ -69,17 +69,59 @@ serve(async (req) => {
       throw new Error("Only hotel owners can manage subscriptions");
     }
 
-    // Get or create Stripe customer
+    // Get subscription info
     const { data: subscription } = await supabase
       .from("subscriptions")
-      .select("stripe_customer_id")
+      .select("stripe_customer_id, stripe_subscription_id, status")
       .eq("hotel_id", hotelId)
       .single();
 
     let customerId = subscription?.stripe_customer_id;
+    const existingSubscriptionId = subscription?.stripe_subscription_id;
 
+    // If there's an active Stripe subscription, update it instead of creating a new one
+    if (existingSubscriptionId && subscription?.status !== 'CANCELED') {
+      try {
+        // Get the subscription from Stripe
+        const stripeSubscription = await stripe.subscriptions.retrieve(existingSubscriptionId);
+
+        // Update the subscription to the new plan
+        await stripe.subscriptions.update(existingSubscriptionId, {
+          items: [{
+            id: stripeSubscription.items.data[0].id,
+            price: PLAN_PRICE_IDS[plan],
+          }],
+          proration_behavior: 'always_invoice',
+          metadata: {
+            hotel_id: hotelId,
+            plan: plan,
+          },
+        });
+
+        // Update our database
+        await supabase
+          .from("subscriptions")
+          .update({ plan })
+          .eq("hotel_id", hotelId);
+
+        return new Response(
+          JSON.stringify({
+            message: "Subscription updated successfully",
+            redirect: `${req.headers.get("origin")}/dashboard/profile?payment=success`
+          }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 200,
+          }
+        );
+      } catch (error: any) {
+        console.error("Error updating subscription:", error);
+        // If update fails, fall through to create new checkout
+      }
+    }
+
+    // Create or get customer
     if (!customerId) {
-      // Create new Stripe customer
       const { data: profile } = await supabase
         .from("profiles")
         .select("full_name")
@@ -97,14 +139,13 @@ serve(async (req) => {
 
       customerId = customer.id;
 
-      // Update subscription with customer ID
       await supabase
         .from("subscriptions")
         .update({ stripe_customer_id: customerId })
         .eq("hotel_id", hotelId);
     }
 
-    // Create Checkout Session
+    // Create Checkout Session for new subscription
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: "subscription",
