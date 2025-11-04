@@ -192,20 +192,6 @@ export default function DashboardHome() {
     };
   }, [data]);
 
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("es-DO", {
-      style: "currency",
-      currency: hotel.currency || "DOP",
-    }).format(amount);
-  };
-
-  if (isLoading) {
-    return <DashboardSkeleton />;
-  }
-
-  const upcomingCheckIns = data?.checkInsToday || [];
-  const upcomingCheckOuts = data?.checkOutsToday || [];
-
   // Query para datos de Revenue Management (historial de precios)
   const { data: revenueData } = useQuery({
     queryKey: ["revenue-data", hotel.id, revenueTimeRange],
@@ -350,12 +336,28 @@ export default function DashboardHome() {
     }
   }, [revenueData, revenueTimeRange]);
 
+  // Helper function for currency formatting
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat("es-DO", {
+      style: "currency",
+      currency: hotel.currency || "DOP",
+    }).format(amount);
+  };
+
+  // Early return if loading
+  if (isLoading) {
+    return <DashboardSkeleton />;
+  }
+
+  const upcomingCheckIns = data?.checkInsToday || [];
+  const upcomingCheckOuts = data?.checkOutsToday || [];
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div>
         <h1 className="text-3xl font-bold mb-2">Panel de Control</h1>
-        <p className="text-muted-foreground">
+        <p className="text-sm text-muted-foreground">
           Resumen general de las operaciones del hotel - {formatDate(new Date().toISOString())}
         </p>
       </div>
