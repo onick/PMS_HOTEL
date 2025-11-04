@@ -4,7 +4,17 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
 serve(async (req) => {
+  // Handle CORS preflight request
+  if (req.method === "OPTIONS") {
+    return new Response(null, { headers: corsHeaders });
+  }
+
   try {
     const { hotelId } = await req.json();
 
@@ -13,7 +23,7 @@ serve(async (req) => {
         JSON.stringify({ error: "hotel_id is required" }),
         {
           status: 400,
-          headers: { "Content-Type": "application/json" },
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
     }
@@ -29,13 +39,13 @@ serve(async (req) => {
 
     if (existing) {
       return new Response(
-        JSON.stringify({ 
+        JSON.stringify({
           message: "Subscription already exists",
-          subscription_id: existing.id 
+          subscription_id: existing.id
         }),
         {
           status: 200,
-          headers: { "Content-Type": "application/json" },
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
     }
@@ -60,19 +70,19 @@ serve(async (req) => {
         JSON.stringify({ error: error.message }),
         {
           status: 500,
-          headers: { "Content-Type": "application/json" },
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
         }
       );
     }
 
     return new Response(
-      JSON.stringify({ 
+      JSON.stringify({
         message: "Subscription created successfully",
-        data 
+        data
       }),
       {
         status: 200,
-        headers: { "Content-Type": "application/json" },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
   } catch (err: any) {
@@ -81,7 +91,7 @@ serve(async (req) => {
       JSON.stringify({ error: err.message }),
       {
         status: 500,
-        headers: { "Content-Type": "application/json" },
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       }
     );
   }

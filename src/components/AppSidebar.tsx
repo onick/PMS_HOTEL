@@ -11,6 +11,10 @@ import {
   Hotel,
   Shield,
   User,
+  Package,
+  ClipboardList,
+  UserCog,
+  FileBarChart2,
 } from "lucide-react";
 import {
   Sidebar,
@@ -81,10 +85,38 @@ const mainItems = [
     module: "crm"
   },
   {
+    title: "Inventario",
+    url: "/dashboard/inventory",
+    icon: Package,
+    color: "text-orange-500",
+    module: "inventory"
+  },
+  {
+    title: "Tareas",
+    url: "/dashboard/tasks",
+    icon: ClipboardList,
+    color: "text-purple-500",
+    module: "tasks"
+  },
+  {
+    title: "Staff",
+    url: "/dashboard/staff",
+    icon: UserCog,
+    color: "text-blue-500",
+    module: "staff"
+  },
+  {
     title: "Analytics",
     url: "/dashboard/analytics",
     icon: BarChart3,
     color: "text-analytics",
+    module: "reports"
+  },
+  {
+    title: "Reportes",
+    url: "/dashboard/reports",
+    icon: FileBarChart2,
+    color: "text-emerald-500",
     module: "reports"
   },
 ];

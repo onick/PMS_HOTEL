@@ -119,14 +119,27 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
 
       const { data, error } = await supabase
         .from("guest_notes")
-        .select(`
-          *,
-          user_roles!user_id (full_name)
-        `)
+        .select("*")
         .eq("guest_id", guestRecord.id)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
+
+      // Fetch profiles for each note's user_id
+      if (data && data.length > 0) {
+        const userIds = [...new Set(data.map((note: any) => note.user_id))];
+        const { data: profiles } = await supabase
+          .from("profiles")
+          .select("id, full_name")
+          .in("id", userIds);
+
+        // Map profiles to notes
+        return data.map((note: any) => ({
+          ...note,
+          profile: profiles?.find((p: any) => p.id === note.user_id)
+        }));
+      }
+
       return data || [];
     },
   });
@@ -415,7 +428,7 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
                     <div key={note.id} className="p-3 border rounded-lg">
                       <p className="text-sm mb-2">{note.note}</p>
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{note.user_roles?.full_name || "Usuario"}</span>
+                        <span>{note.profile?.full_name || "Usuario"}</span>
                         <span>{formatDate(note.created_at)}</span>
                       </div>
                     </div>

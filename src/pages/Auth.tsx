@@ -15,6 +15,8 @@ const Auth = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fullName, setFullName] = useState("");
+  const [resetEmail, setResetEmail] = useState("");
+  const [showResetForm, setShowResetForm] = useState(false);
 
   // Modo desarrollo: Auto-completar credenciales de prueba
   const isDevelopment = import.meta.env.DEV;
@@ -74,6 +76,25 @@ const Auth = () => {
     setLoading(false);
   };
 
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+
+    const { error } = await supabase.auth.resetPasswordForEmail(resetEmail, {
+      redirectTo: `${window.location.origin}/auth?reset=true`,
+    });
+
+    if (error) {
+      toast.error(error.message);
+    } else {
+      toast.success("Te hemos enviado un correo para restablecer tu contraseña");
+      setShowResetForm(false);
+      setResetEmail("");
+    }
+
+    setLoading(false);
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/10 via-background to-secondary/10 px-4">
       <Card className="w-full max-w-md shadow-elevated">
@@ -92,44 +113,86 @@ const Auth = () => {
             </TabsList>
 
             <TabsContent value="signin">
-              <form onSubmit={handleSignIn} className="space-y-4">
-                {isDevelopment && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 text-sm">
-                    <p className="font-semibold text-yellow-800 mb-1">🔧 Modo Desarrollo</p>
-                    <p className="text-yellow-700 text-xs">
-                      Para probar el sistema, primero debes crear una cuenta en la pestaña "Registrarse"
+              {!showResetForm ? (
+                <form onSubmit={handleSignIn} className="space-y-4">
+                  {isDevelopment && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 text-sm">
+                      <p className="font-semibold text-yellow-800 mb-1">🔧 Modo Desarrollo</p>
+                      <p className="text-yellow-700 text-xs">
+                        Para probar el sistema, primero debes crear una cuenta en la pestaña "Registrarse"
+                      </p>
+                    </div>
+                  )}
+                  <div className="space-y-2">
+                    <Label htmlFor="email-signin">Email</Label>
+                    <Input
+                      id="email-signin"
+                      type="email"
+                      placeholder="tu@email.com"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="password-signin">Contraseña</Label>
+                    <Input
+                      id="password-signin"
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    className="w-full bg-gradient-ocean hover:opacity-90"
+                    disabled={loading}
+                  >
+                    {loading ? "Cargando..." : "Entrar"}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => setShowResetForm(true)}
+                    className="text-sm text-primary hover:underline w-full text-center"
+                  >
+                    ¿Olvidaste tu contraseña?
+                  </button>
+                </form>
+              ) : (
+                <form onSubmit={handleResetPassword} className="space-y-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-md p-3 text-sm mb-4">
+                    <p className="text-blue-800">
+                      Ingresa tu email y te enviaremos un enlace para restablecer tu contraseña
                     </p>
                   </div>
-                )}
-                <div className="space-y-2">
-                  <Label htmlFor="email-signin">Email</Label>
-                  <Input
-                    id="email-signin"
-                    type="email"
-                    placeholder="tu@email.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="password-signin">Contraseña</Label>
-                  <Input
-                    id="password-signin"
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                  />
-                </div>
-                <Button
-                  type="submit"
-                  className="w-full bg-gradient-ocean hover:opacity-90"
-                  disabled={loading}
-                >
-                  {loading ? "Cargando..." : "Entrar"}
-                </Button>
-              </form>
+                  <div className="space-y-2">
+                    <Label htmlFor="reset-email">Email</Label>
+                    <Input
+                      id="reset-email"
+                      type="email"
+                      placeholder="tu@email.com"
+                      value={resetEmail}
+                      onChange={(e) => setResetEmail(e.target.value)}
+                      required
+                    />
+                  </div>
+                  <Button
+                    type="submit"
+                    className="w-full bg-gradient-ocean hover:opacity-90"
+                    disabled={loading}
+                  >
+                    {loading ? "Enviando..." : "Enviar enlace de recuperación"}
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => setShowResetForm(false)}
+                    className="text-sm text-muted-foreground hover:underline w-full text-center"
+                  >
+                    Volver al inicio de sesión
+                  </button>
+                </form>
+              )}
             </TabsContent>
 
             <TabsContent value="signup">

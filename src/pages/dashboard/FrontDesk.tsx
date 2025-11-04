@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import TodayArrivals from "@/components/front-desk/TodayArrivals";
 import TodayDepartures from "@/components/front-desk/TodayDepartures";
 import InHouseGuests from "@/components/front-desk/InHouseGuests";
-import RoomStatus from "@/components/front-desk/RoomStatus";
+import RoomStatusGrid from "@/components/front-desk/RoomStatusGrid";
 import NewReservationDialog from "@/components/reservations/NewReservationDialog";
 import WalkInDialog from "@/components/front-desk/WalkInDialog";
 import { PermissionGuard } from "@/components/auth/PermissionGuard";
@@ -55,7 +55,7 @@ export default function FrontDesk() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <InHouseGuests />
-        <RoomStatus />
+        <RoomStatusGrid />
       </div>
     </div>
   );

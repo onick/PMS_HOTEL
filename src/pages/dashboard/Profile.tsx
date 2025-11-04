@@ -10,6 +10,8 @@ import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { SubscriptionPlans } from '@/components/subscription/SubscriptionPlans';
+import { MembershipOverview } from '@/components/subscription/MembershipOverview';
+import { ChangePlanView } from '@/components/subscription/ChangePlanView';
 import { User, Mail, Building2, Shield, CreditCard, Settings, LogOut } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -22,6 +24,7 @@ export default function Profile() {
   const [fullName, setFullName] = useState('');
   const [isEditingName, setIsEditingName] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showChangePlan, setShowChangePlan] = useState(false);
 
   // Get user data
   useEffect(() => {
@@ -411,7 +414,17 @@ export default function Profile() {
               </CardContent>
             </Card>
           ) : userRole.hotel_id ? (
-            <SubscriptionPlans hotelId={userRole.hotel_id} />
+            showChangePlan ? (
+              <ChangePlanView
+                hotelId={userRole.hotel_id}
+                onBack={() => setShowChangePlan(false)}
+              />
+            ) : (
+              <MembershipOverview
+                hotelId={userRole.hotel_id}
+                onChangePlan={() => setShowChangePlan(true)}
+              />
+            )
           ) : (
             <Card>
               <CardContent className="flex items-center justify-center py-12">

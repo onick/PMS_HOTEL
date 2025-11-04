@@ -31,8 +31,10 @@ export default function FolioDetails({ folio, open, onClose }: FolioDetailsProps
   const queryClient = useQueryClient();
   const [showAddCharge, setShowAddCharge] = useState(false);
   const [showPayment, setShowPayment] = useState(false);
+  const [chargeCategory, setChargeCategory] = useState("OTHER");
   const [chargeDescription, setChargeDescription] = useState("");
   const [chargeAmount, setChargeAmount] = useState("");
+  const [chargeQuantity, setChargeQuantity] = useState("1");
   const [paymentAmount, setPaymentAmount] = useState("");
 
   const { data: charges } = useQuery({
@@ -51,13 +53,15 @@ export default function FolioDetails({ folio, open, onClose }: FolioDetailsProps
   });
 
   const addChargeMutation = useMutation({
-    mutationFn: async (charge: { description: string; amount_cents: number }) => {
+    mutationFn: async (charge: { category: string; description: string; amount_cents: number; quantity: number }) => {
       const { error } = await supabase
         .from("folio_charges")
         .insert({
           folio_id: folio.id,
+          charge_category: charge.category,
           description: charge.description,
           amount_cents: charge.amount_cents,
+          quantity: charge.quantity,
         });
 
       if (error) throw error;
@@ -73,8 +77,10 @@ export default function FolioDetails({ folio, open, onClose }: FolioDetailsProps
     },
     onSuccess: () => {
       toast.success("Cargo aplicado correctamente");
+      setChargeCategory("OTHER");
       setChargeDescription("");
       setChargeAmount("");
+      setChargeQuantity("1");
       setShowAddCharge(false);
       queryClient.invalidateQueries({ queryKey: ["folio-charges"] });
       queryClient.invalidateQueries({ queryKey: ["active-folios"] });
@@ -127,14 +133,18 @@ export default function FolioDetails({ folio, open, onClose }: FolioDetailsProps
     }
 
     const amount = parseFloat(chargeAmount);
+    const quantity = parseInt(chargeQuantity) || 1;
+    
     if (isNaN(amount) || amount <= 0) {
       toast.error("El monto debe ser mayor a 0");
       return;
     }
 
     addChargeMutation.mutate({
+      category: chargeCategory,
       description: chargeDescription,
-      amount_cents: Math.round(amount * 100),
+      amount_cents: Math.round(amount * quantity * 100),
+      quantity: quantity,
     });
   };
 
@@ -163,6 +173,17 @@ export default function FolioDetails({ folio, open, onClose }: FolioDetailsProps
   const reservation = folio.reservations?.[0];
   const balance = folio.balance_cents / 100;
   const totalCharges = charges?.reduce((sum, c) => sum + c.amount_cents, 0) || 0;
+
+  const categoryConfig: Record<string, { label: string; color: string }> = {
+    ROOM: { label: "Habitación", color: "bg-blue-100 text-blue-700" },
+    FOOD: { label: "Alimentos", color: "bg-orange-100 text-orange-700" },
+    BEVERAGE: { label: "Bebidas", color: "bg-purple-100 text-purple-700" },
+    MINIBAR: { label: "Minibar", color: "bg-pink-100 text-pink-700" },
+    LAUNDRY: { label: "Lavandería", color: "bg-cyan-100 text-cyan-700" },
+    SPA: { label: "Spa", color: "bg-green-100 text-green-700" },
+    PARKING: { label: "Estacionamiento", color: "bg-gray-100 text-gray-700" },
+    OTHER: { label: "Otro", color: "bg-yellow-100 text-yellow-700" },
+  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -220,23 +241,57 @@ export default function FolioDetails({ folio, open, onClose }: FolioDetailsProps
           <div className="space-y-3 p-4 border rounded-lg">
             <h4 className="font-semibold">Nuevo Cargo</h4>
             <div>
+              <Label>Categoría</Label>
+              <select
+                value={chargeCategory}
+                onChange={(e) => setChargeCategory(e.target.value)}
+                className="w-full px-3 py-2 border rounded-md"
+              >
+                <option value="ROOM">Habitación</option>
+                <option value="FOOD">Alimentos</option>
+                <option value="BEVERAGE">Bebidas</option>
+                <option value="MINIBAR">Minibar</option>
+                <option value="LAUNDRY">Lavandería</option>
+                <option value="SPA">Spa</option>
+                <option value="PARKING">Estacionamiento</option>
+                <option value="OTHER">Otro</option>
+              </select>
+            </div>
+            <div>
               <Label>Descripción</Label>
               <Textarea
                 value={chargeDescription}
                 onChange={(e) => setChargeDescription(e.target.value)}
-                placeholder="Ej: Servicio a la habitación, Minibar, etc."
+                placeholder="Ej: Servicio a la habitación, Coca-Cola, etc."
               />
             </div>
-            <div>
-              <Label>Monto ({folio.currency})</Label>
-              <Input
-                type="number"
-                step="0.01"
-                value={chargeAmount}
-                onChange={(e) => setChargeAmount(e.target.value)}
-                placeholder="0.00"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Precio Unitario ({folio.currency})</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  value={chargeAmount}
+                  onChange={(e) => setChargeAmount(e.target.value)}
+                  placeholder="0.00"
+                />
+              </div>
+              <div>
+                <Label>Cantidad</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={chargeQuantity}
+                  onChange={(e) => setChargeQuantity(e.target.value)}
+                  placeholder="1"
+                />
+              </div>
             </div>
+            {chargeAmount && chargeQuantity && (
+              <div className="text-sm text-muted-foreground">
+                Total: {folio.currency} {(parseFloat(chargeAmount) * parseInt(chargeQuantity)).toFixed(2)}
+              </div>
+            )}
             <div className="flex gap-2">
               <Button
                 onClick={handleAddCharge}
@@ -248,8 +303,10 @@ export default function FolioDetails({ folio, open, onClose }: FolioDetailsProps
                 variant="outline"
                 onClick={() => {
                   setShowAddCharge(false);
+                  setChargeCategory("OTHER");
                   setChargeDescription("");
                   setChargeAmount("");
+                  setChargeQuantity("1");
                 }}
               >
                 Cancelar
@@ -277,6 +334,8 @@ export default function FolioDetails({ folio, open, onClose }: FolioDetailsProps
               charges.map((charge: any) => {
                 const amount = charge.amount_cents / 100;
                 const isPayment = amount < 0;
+                const category = charge.charge_category || "OTHER";
+                const categoryInfo = categoryConfig[category] || categoryConfig.OTHER;
 
                 return (
                   <div
@@ -284,12 +343,29 @@ export default function FolioDetails({ folio, open, onClose }: FolioDetailsProps
                     className="flex items-center justify-between p-3 border rounded-lg"
                   >
                     <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-1">
+                        {!isPayment && (
+                          <Badge className={`text-xs ${categoryInfo.color}`}>
+                            {categoryInfo.label}
+                          </Badge>
+                        )}
+                        {isPayment && (
+                          <Badge variant="outline" className="text-xs bg-green-50 text-green-700">
+                            Pago
+                          </Badge>
+                        )}
+                        {charge.quantity > 1 && (
+                          <span className="text-xs text-muted-foreground">
+                            x{charge.quantity}
+                          </span>
+                        )}
+                      </div>
                       <p className="font-medium">{charge.description}</p>
                       <p className="text-xs text-muted-foreground">
                         {formatDate(charge.charge_date || charge.created_at)}
                       </p>
                     </div>
-                    <div className={`font-semibold ${isPayment ? "text-success" : "text-foreground"}`}>
+                    <div className={`font-semibold ${isPayment ? "text-green-600" : "text-foreground"}`}>
                       {isPayment ? "-" : "+"}${Math.abs(amount).toFixed(2)}
                     </div>
                   </div>

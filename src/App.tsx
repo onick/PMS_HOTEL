@@ -20,7 +20,11 @@ const Housekeeping = lazy(() => import("./pages/dashboard/Housekeeping"));
 const Billing = lazy(() => import("./pages/dashboard/Billing"));
 const Channels = lazy(() => import("./pages/dashboard/Channels"));
 const CRM = lazy(() => import("./pages/dashboard/CRM"));
+const Inventory = lazy(() => import("./pages/dashboard/Inventory"));
+const Tasks = lazy(() => import("./pages/dashboard/Tasks"));
+const Staff = lazy(() => import("./pages/dashboard/Staff"));
 const Analytics = lazy(() => import("./pages/dashboard/Analytics"));
+const Reports = lazy(() => import("./pages/dashboard/Reports"));
 const Security = lazy(() => import("./pages/dashboard/Security"));
 const Settings = lazy(() => import("./pages/dashboard/Settings"));
 const Profile = lazy(() => import("./pages/dashboard/Profile"));
@@ -50,7 +54,11 @@ const App = () => {
                   <Route path="billing" element={<Billing />} />
                   <Route path="channels" element={<Channels />} />
                   <Route path="crm" element={<CRM />} />
+                  <Route path="inventory" element={<Inventory />} />
+                  <Route path="tasks" element={<Tasks />} />
+                  <Route path="staff" element={<Staff />} />
                   <Route path="analytics" element={<Analytics />} />
+                  <Route path="reports" element={<Reports />} />
                   <Route path="security" element={<Security />} />
                   <Route path="settings" element={<Settings />} />
                   <Route path="profile" element={<Profile />} />
