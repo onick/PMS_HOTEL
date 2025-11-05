@@ -1,80 +1,96 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { handleCorsPrelight, createCorsResponse } from '../_shared/cors.ts';
+import { getSupabaseServiceClient } from '../_shared/supabase.ts';
+import { z } from 'https://deno.land/x/zod@v3.22.4/mod.ts';
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-interface ConfirmPaymentInput {
-  hotelId: string;
-  reservationId: string;
-  paymentIntentId: string;
-}
+// Validation schema
+const ConfirmPaymentSchema = z.object({
+  hotelId: z.string().uuid('Invalid hotel ID'),
+  reservationId: z.string().uuid('Invalid reservation ID'),
+  paymentIntentId: z.string().min(1, 'Payment intent ID required'),
+});
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+  const origin = req.headers.get('origin');
+
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return handleCorsPrelight(origin);
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
+    // Parse and validate input
+    const body = await req.json();
+    const result = ConfirmPaymentSchema.safeParse(body);
 
-    const input: ConfirmPaymentInput = await req.json();
-    console.log("Confirming payment:", input);
-
-    // ===== VERIFICAR STRIPE (simulado) =====
-    // En producción: await stripeVerifySucceeded(input.paymentIntentId)
-    const paymentOk = true;
-
-    if (!paymentOk) {
-      throw new Error("PaymentNotConfirmed");
-    }
-
-    // ===== OBTENER RESERVA =====
-    const { data: reservation, error: resError } = await supabase
-      .from("reservations")
-      .select("*, room_types(id)")
-      .eq("id", input.reservationId)
-      .eq("hotel_id", input.hotelId)
-      .single();
-
-    if (resError || !reservation) {
-      throw new Error("ReservationNotFound");
-    }
-
-    if (reservation.status !== "PENDING_PAYMENT") {
-      return new Response(
-        JSON.stringify({ message: "Already processed", status: reservation.status }),
-        {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+    if (!result.success) {
+      return createCorsResponse(
+        { error: 'Validation failed', details: result.error.flatten() },
+        400,
+        origin
       );
     }
 
-    // Verificar expiración del hold
-    const holdExpiresAt = new Date(reservation.hold_expires_at);
-    if (holdExpiresAt < new Date()) {
-      throw new Error("HoldExpired");
+    const input = result.data;
+    const supabase = getSupabaseServiceClient();
+
+    console.log('Confirming payment:', input);
+
+    // TODO: Verify Stripe payment succeeded
+    // const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY')!);
+    // const paymentIntent = await stripe.paymentIntents.retrieve(input.paymentIntentId);
+    // if (paymentIntent.status !== 'succeeded') {
+    //   throw new Error('Payment not confirmed');
+    // }
+
+    // Get reservation
+    const { data: reservation, error: resError } = await supabase
+      .from('reservations')
+      .select('*, room_types(id)')
+      .eq('id', input.reservationId)
+      .eq('hotel_id', input.hotelId)
+      .single();
+
+    if (resError || !reservation) {
+      return createCorsResponse(
+        { error: 'Reservation not found' },
+        404,
+        origin
+      );
     }
 
-    // ===== CONVERTIR HOLDS → RESERVED =====
+    if (reservation.status !== 'PENDING_PAYMENT') {
+      return createCorsResponse(
+        { message: 'Already processed', status: reservation.status },
+        200,
+        origin
+      );
+    }
+
+    // Verify hold hasn't expired
+    const holdExpiresAt = new Date(reservation.hold_expires_at);
+    if (holdExpiresAt < new Date()) {
+      return createCorsResponse(
+        { error: 'Hold expired, please create a new reservation' },
+        400,
+        origin
+      );
+    }
+
+    // Convert holds to reserved
     const days = enumerateDates(reservation.check_in, reservation.check_out);
 
     for (const day of days) {
-      // Decrementar holds
-      await supabase.rpc("increment_inventory_holds", {
+      // Decrement holds
+      await supabase.rpc('increment_inventory_holds', {
         p_hotel_id: input.hotelId,
         p_room_type_id: reservation.room_type_id,
         p_day: day,
         p_delta: -1,
       });
 
-      // Incrementar reserved
-      await supabase.rpc("increment_inventory_reserved", {
+      // Increment reserved
+      await supabase.rpc('increment_inventory_reserved', {
         p_hotel_id: input.hotelId,
         p_room_type_id: reservation.room_type_id,
         p_day: day,
@@ -82,40 +98,43 @@ serve(async (req) => {
       });
     }
 
-    // ===== ACTUALIZAR ESTADO =====
+    // Update reservation status
     const { error: updateError } = await supabase
-      .from("reservations")
+      .from('reservations')
       .update({
-        status: "CONFIRMED",
+        status: 'CONFIRMED',
         hold_expires_at: null,
       })
-      .eq("id", input.reservationId);
+      .eq('id', input.reservationId);
 
     if (updateError) {
-      throw new Error(`UpdateError: ${updateError.message}`);
+      console.error('Update error:', updateError);
+      throw new Error(`Failed to update reservation: ${updateError.message}`);
     }
 
-    console.log("Payment confirmed successfully");
+    console.log('Payment confirmed successfully');
 
-    return new Response(
-      JSON.stringify({ message: "Payment confirmed", reservationId: input.reservationId }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      }
+    return createCorsResponse(
+      { 
+        message: 'Payment confirmed', 
+        reservationId: input.reservationId,
+        status: 'CONFIRMED'
+      },
+      200,
+      origin
     );
-  } catch (error: any) {
-    console.error("Error confirming payment:", error);
-    return new Response(
-      JSON.stringify({ error: error.message || "InternalError" }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 400,
-      }
+
+  } catch (error) {
+    console.error('Error confirming payment:', error);
+    return createCorsResponse(
+      { error: error.message || 'Internal server error' },
+      500,
+      origin
     );
   }
 });
 
+// Helper function to enumerate dates
 function enumerateDates(checkIn: string, checkOut: string): string[] {
   try {
     const start = new Date(checkIn);
@@ -127,7 +146,7 @@ function enumerateDates(checkIn: string, checkOut: string): string[] {
     const current = new Date(start);
 
     while (current < end) {
-      days.push(current.toISOString().split("T")[0]);
+      days.push(current.toISOString().split('T')[0]);
       current.setDate(current.getDate() + 1);
     }
 

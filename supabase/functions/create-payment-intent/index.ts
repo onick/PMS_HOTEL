@@ -1,57 +1,61 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import Stripe from 'https://esm.sh/stripe@14.21.0?target=deno'
+import { handleCorsPrelight, createCorsResponse } from '../_shared/cors.ts'
+import { PaymentIntentSchema, validateRequest } from '../_shared/validation.ts'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+// Validate Stripe key on startup
+const STRIPE_SECRET_KEY = Deno.env.get('STRIPE_SECRET_KEY');
+if (!STRIPE_SECRET_KEY) {
+  throw new Error('STRIPE_SECRET_KEY environment variable is required');
 }
 
+const stripe = new Stripe(STRIPE_SECRET_KEY, {
+  apiVersion: '2023-10-16',
+});
+
 serve(async (req) => {
-  // Handle CORS preflight requests
+  const origin = req.headers.get('origin');
+
+  // Handle CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response(null, { headers: corsHeaders })
+    return handleCorsPrelight(origin);
   }
 
   try {
-    const stripe = new Stripe(Deno.env.get('STRIPE_SECRET_KEY') || '', {
-      apiVersion: '2023-10-16',
-    })
+    // Parse and validate request body
+    const body = await req.json();
+    const validatedData = validateRequest(PaymentIntentSchema, body);
 
-    const { amount, currency = 'usd', reservationId, metadata = {} } = await req.json()
-
-    // Validate amount
-    if (!amount || amount <= 0) {
-      throw new Error('Invalid amount')
-    }
-
-    // Create a PaymentIntent with explicit payment method types
+    // Create PaymentIntent with validated data
     const paymentIntent = await stripe.paymentIntents.create({
-      amount: Math.round(amount), // Stripe expects amount in cents
-      currency: currency.toLowerCase(),
-      payment_method_types: ['card'], // Explicitly specify card payments
+      amount: Math.round(validatedData.amount), // Stripe expects cents
+      currency: validatedData.currency.toLowerCase(),
+      payment_method_types: ['card'],
       metadata: {
-        reservationId,
-        ...metadata,
+        reservationId: validatedData.reservationId,
+        ...validatedData.metadata,
       },
-    })
+    });
 
-    return new Response(
-      JSON.stringify({
+    return createCorsResponse(
+      {
         clientSecret: paymentIntent.client_secret,
         paymentIntentId: paymentIntent.id,
-      }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 200,
       },
-    )
+      200,
+      origin
+    );
+
   } catch (error) {
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        status: 400,
+    console.error('Payment intent creation failed:', error);
+    
+    return createCorsResponse(
+      { 
+        error: error.message || 'Failed to create payment intent',
+        code: error.code || 'PAYMENT_INTENT_ERROR'
       },
-    )
+      error.message.includes('Validation failed') ? 400 : 500,
+      origin
+    );
   }
-})
+});
