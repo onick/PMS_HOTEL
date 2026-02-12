@@ -1,424 +1,660 @@
 # HotelMate PMS — Implementation Status Report
 
 **Date:** 2026-02-12  
-**Reviewed by:** AI Audit  
-**Repository:** https://github.com/onick/PMS_HOTEL  
-**Frontend Stack:** React 18 + Vite + TypeScript + shadcn-ui + Tailwind CSS  
-**Backend Stack:** Supabase (Auth, PostgreSQL, Edge Functions, RLS)  
-**Plan Reference:** `docs/plans/2026-02-12-laravel-backend-design.md`
+**Reviewed by:** AI Audit (Full Code Verification)  
+**Frontend Repo:** https://github.com/onick/PMS_HOTEL  
+**Backend Project:** `/hotelmate-api` (Laravel)  
+**Production Domain:** nfticket.do
+
+---
+
+## Architecture Overview
+
+```
+┌──────────────────────────────────────────────┐
+│               FRONTEND (React)               │
+│  React 18 + Vite + TypeScript + shadcn-ui    │
+│  Tailwind CSS + React Query + Zustand        │
+│  Repo: hotelmate-core                        │
+└──────────────┬───────────────────────────────┘
+               │ REST API (JSON)
+               ▼
+┌──────────────────────────────────────────────┐
+│              BACKEND (Laravel)               │
+│  Laravel 12 + PHP 8.5 + Sanctum + Stripe     │
+│  77 API routes + 8 services + 4 middleware    │
+│  Project: hotelmate-api                      │
+└──────────────┬───────────────────────────────┘
+               │
+               ▼
+┌──────────────────────────────────────────────┐
+│       LEGACY BACKEND (Supabase)              │
+│  46 migrations + 19 Edge Functions + RLS     │
+│  Being migrated to Laravel API               │
+└──────────────────────────────────────────────┘
+```
 
 ---
 
 ## Executive Summary
 
-| Phase | Description | Status | Completeness |
-|-------|-------------|--------|-------------|
-| **Phase 1** | Foundation (DB, Auth, Multi-tenancy) | ✅ Complete | **100%** |
-| **Phase 2** | Core PMS (CRUD, Reservations, Folios) | ✅ Complete | **100%** |
-| **Phase 3** | Operations (Check-in/out, Housekeeping) | ✅ Complete | **100%** |
-| **Phase 4** | Payments (Stripe, Refunds, Subscriptions) | ✅ Complete | **100%** |
-| **Phase 5** | Automation (Emails, Notifications) | ⚠️ Mostly | **~80%** |
-| **Phase 6** | Security & Polish (RBAC, Audit, GDPR, Tests) | ✅ Complete | **95%** |
-| **Phase 7** | Frontend Migration to Laravel API | 🔲 Not Started | **0%** |
+| Phase | Description | Frontend (Supabase) | Backend (Laravel) | Overall |
+|-------|-------------|--------------------|--------------------|---------|
+| **Phase 1** | Foundation (DB, Auth, Multi-tenancy) | ✅ 100% | ✅ 100% | ✅ **100%** |
+| **Phase 2** | Auth + Middleware + Seeders | ✅ 100% | ✅ 100% | ✅ **100%** |
+| **Phase 3** | Core PMS (CRUD, Reservations) | ✅ 100% | ✅ 100% | ✅ **100%** |
+| **Phase 4** | Operations (Check-in/out, Housekeeping) | ✅ 100% | ✅ 100% | ✅ **100%** |
+| **Phase 5** | Payments + Billing | ✅ 100% | ✅ 100% | ✅ **100%** |
+| **Phase 6** | Automation (Emails, Night Audit) | ⚠️ 80% | ⚠️ 70% | ⚠️ **~75%** |
+| **Phase 7** | Security & Polish | ✅ 95% | ⚠️ 50% | ⚠️ **~72%** |
+| **Phase 8** | Frontend Migration to Laravel API | 🔲 0% | N/A | 🔲 **0%** |
 
-**Overall Project Progress: ~95% of Phases 1-6 complete.**
+**Overall Project Progress: ~85% complete across all phases.**
 
 ---
 
-## Phase 1: Foundation — ✅ COMPLETE
+# PART 1: LARAVEL BACKEND (hotelmate-api)
 
-### Database Schema (46 migrations)
+## Stack & Project Setup
 
-All migrations located in `supabase/migrations/`:
+| Item | Value |
+|------|-------|
+| **Framework** | Laravel 12.51.0 |
+| **PHP** | 8.5.2 |
+| **Auth** | Laravel Sanctum 4.0 |
+| **Payments** | stripe/stripe-php 19.3 |
+| **Testing** | PHPUnit 11.5 |
+| **DB** | SQLite (dev) → MySQL (production planned) |
+| **Dev Tools** | Pail (logs), Pint (linting), Sail (Docker) |
 
-| Table | Fields | Notes |
-|-------|--------|-------|
-| `hotels` | name, slug, currency, timezone, tax_rate, address, city, country | Core tenant entity |
-| `rooms` | hotel_id, room_type_id, room_number, status, floor | Status enum: AVAILABLE, OCCUPIED, MAINTENANCE, BLOCKED |
-| `room_types` | hotel_id, name, base_price_cents, max_guests, amenities | Base pricing per type |
-| `guests` | hotel_id, name, email, phone, document_type/number, country, vip_status, total_spent_cents, total_stays, preferences | Full guest profile |
-| `user_roles` | user_id, hotel_id, role | Links users to hotels with role |
-| `reservations` | hotel_id, guest_id, room_type_id, room_id, status, check_in, check_out, total_amount_cents, metadata | Multi-status lifecycle |
-| `folios` | hotel_id, reservation_id, balance_cents, currency | Financial container |
-| `folio_charges` | folio_id, description, amount_cents, charge_category, quantity | Individual charges |
-| `inventory_by_day` | hotel_id, room_type_id, day, total, reserved, holds | Daily availability tracking |
-| `rate_plans` | hotel_id, name, is_active, pricing config | Revenue management |
-| `rate_by_day` | hotel_id, room_type_id, rate_plan_id, date, amount_cents | Daily rate overrides |
-| `promo_codes` | hotel_id, code, discount config | Promotional pricing |
-| `room_locks` | hotel_id, room_id, day, reservation_id | Physical room assignment |
-| `subscriptions` | hotel_id, plan, status, stripe_customer_id, stripe_subscription_id, trial dates | SaaS billing |
-| `staff_invitations` | hotel_id, email, role, token, status | Staff onboarding |
-| `audit_logs` | hotel_id, user_id, action, entity_type, entity_id, old_values, new_values, ip_address | Full audit trail |
-| `incidents` | hotel_id, room_id, title, description, category, priority, status, assigned_to | Incident management |
-| `incident_history` | incident_id, action, old_value, new_value, user_id | Incident timeline |
-| `incident_assignment_rules` | hotel_id, category, assigned_role, priority | Auto-assignment |
-| `cleaning_checklists` | hotel_id, room_id, items (JSON), status, assigned_to | Housekeeping tasks |
-| `channel_connections` | hotel_id, channel_name, channel_id, credentials, status, last_sync_at | OTA integrations |
-| `notifications` | hotel_id, comprehensive notification system | Real-time alerts |
-| `guest_notes` | guest_id, hotel_id, note, note_type | CRM notes |
-| `competitor_rates` | hotel_id, competitor_name, date, price_cents, room_category | Competitive analysis |
-| `data_access_logs` | hotel_id, user_id, data_type, purpose, legal_basis, ip_address | GDPR compliance |
-| `data_requests` | hotel_id, guest_id, request_type, status, data_export | GDPR data requests |
-| `data_retention_policies` | hotel_id, data_type, retention_period_days, auto_delete | GDPR retention |
-| `idempotency_keys` | hotel_id, key, response | Payment deduplication |
-| `stripe_payments` | Payment records from Stripe | Webhook sync |
-| `stripe_refunds` | Refund records from Stripe | Webhook sync |
-| `inventory_items` | Physical inventory (materials, supplies) | Housekeeping supplies |
-| `tasks` | hotel_id, title, status, priority, assigned_to | Task management |
+---
 
-### Enums Defined
+## Phase 1 (Laravel): Database Schema & Domain — ✅ COMPLETE
 
-```typescript
-app_role: ["SUPER_ADMIN", "HOTEL_OWNER", "MANAGER", "RECEPTION", "HOUSEKEEPING", "SALES"]
-reservation_status: ["PENDING_PAYMENT", "CONFIRMED", "CANCELLED", "EXPIRED", "CHECKED_IN", "CHECKED_OUT"]
-room_status: ["AVAILABLE", "OCCUPIED", "MAINTENANCE", "BLOCKED"]
-payment_status: ["PENDING", "PROCESSING", "SUCCEEDED", "FAILED", "CANCELED", "REQUIRES_ACTION"]
-refund_reason: ["DUPLICATE", "FRAUDULENT", "REQUESTED_BY_CUSTOMER", "CANCELED_RESERVATION", "OTHER"]
-refund_status: ["PENDING", "SUCCEEDED", "FAILED", "CANCELED"]
-plan_type: ["FREE", "BASIC", "PRO", "ENTERPRISE"]
-subscription_status: ["TRIAL", "ACTIVE", "PAST_DUE", "CANCELED", "INCOMPLETE", "INCOMPLETE_EXPIRED"]
+### 21 Migrations (35+ tables)
+
+| Migration | Tables Created |
+|-----------|---------------|
+| `create_users_table` | users (base Laravel) |
+| `create_cache_table` | cache, cache_locks |
+| `create_jobs_table` | jobs, failed_jobs, job_batches |
+| `create_personal_access_tokens_table` | personal_access_tokens (Sanctum) |
+| `modify_users_table` | Adds current_hotel_id, phone, is_super_admin to users |
+| `create_hotels_table` | hotels |
+| `create_room_types_table` | room_types |
+| `create_rooms_table` | rooms (dual status: occupancy + housekeeping) |
+| `create_guests_table` | guests, guest_notes |
+| `create_rate_plans_table` | rate_plans, cancellation_policies |
+| `create_rates_and_inventory_tables` | rates_by_day, inventory_by_day, promo_codes |
+| `create_reservations_table` | reservations |
+| `create_reservation_units_table` | reservation_units |
+| `create_folios_table` | folios, folio_charges |
+| `create_payments_table` | payments, payment_provider_details, refunds |
+| `create_room_locks_table` | room_locks |
+| `create_cashier_shifts_table` | cashier_shifts |
+| `create_roles_and_permissions_tables` | permissions, role_permissions, user_roles, user_permissions, staff_invitations |
+| `create_subscriptions_table` | subscriptions, subscription_history, monthly_usage, idempotency_keys |
+| `create_operations_tables` | incidents, incident_history, tasks, task_comments, task_attachments, cleaning_checklists |
+| `create_system_tables` | channel_connections, notifications, audit_logs, night_audits, competitor_rates, revenue_settings |
+
+### 43 Eloquent Models
+
+```
+app/Models/
+├── AuditLog.php              ├── MonthlyUsage.php
+├── CancellationPolicy.php    ├── NightAudit.php
+├── CashierShift.php          ├── Notification.php
+├── ChannelConnection.php     ├── Payment.php
+├── CleaningChecklist.php     ├── PaymentProviderDetail.php
+├── CompetitorRate.php        ├── Permission.php
+├── Folio.php                 ├── PromoCode.php
+├── FolioCharge.php           ├── RateByDay.php
+├── Guest.php                 ├── RatePlan.php
+├── GuestNote.php             ├── Refund.php
+├── Hotel.php                 ├── Reservation.php
+├── IdempotencyKey.php        ├── ReservationUnit.php
+├── Incident.php              ├── RevenueSetting.php
+├── IncidentHistory.php       ├── RolePermission.php
+├── InventoryByDay.php        ├── Room.php
+├── Scopes/HotelScope.php     ├── RoomLock.php
+├── Traits/BelongsToHotel.php ├── RoomType.php
+├── StaffInvitation.php       ├── Subscription.php
+├── SubscriptionHistory.php   ├── Task.php
+├── TaskAttachment.php        ├── TaskComment.php
+├── User.php                  ├── UserPermission.php
+└── UserRole.php
 ```
 
-### Authentication
+**Model Features:**
+- ✅ Full Eloquent relationships (BelongsTo, HasMany, HasOne)
+- ✅ JSON casts for snapshots, breakdowns, settings
+- ✅ Scopes: `scopeTodayArrivals`, `scopeTodayDepartures`, `scopeInHouse`, `scopeStatus`
+- ✅ SoftDeletes on Reservation
+- ✅ Auto-calculate `nights` on Reservation save
 
-- **File:** `src/pages/Auth.tsx` (294 lines)
-- **Features:** Login, Register, Password Reset, Demo Mode
-- **Provider:** Supabase Auth with email/password
-- **Functions:** `handleSignUp`, `handleSignIn`, `handleResetPassword`, `handleDemoLogin`
+### 17 String-Backed Enums
 
-### Multi-Tenancy
+```
+app/Enums/
+├── AppRole.php                 (SUPER_ADMIN, HOTEL_OWNER, MANAGER, RECEPTION, HOUSEKEEPING, SALES)
+├── CancellationPolicyType.php  (FREE, NON_REFUNDABLE, PARTIAL_CHARGE)
+├── IncidentPriority.php        (LOW, MEDIUM, HIGH, CRITICAL)
+├── IncidentStatus.php          (OPEN, IN_PROGRESS, RESOLVED, CLOSED)
+├── InvitationStatus.php        (PENDING, ACCEPTED, EXPIRED, CANCELLED)
+├── PaymentProvider.php         (CASH, CARD_TERMINAL, TRANSFER, STRIPE, MANUAL)
+├── PaymentStatus.php           (PENDING, PROCESSING, SUCCEEDED, FAILED, CANCELED, REQUIRES_ACTION)
+├── RefundReason.php            (DUPLICATE, FRAUDULENT, REQUESTED_BY_CUSTOMER, CANCELED_RESERVATION, OTHER)
+├── RefundStatus.php            (PENDING, SUCCEEDED, FAILED, CANCELED)
+├── ReservationSource.php       (DIRECT, OTA, PHONE, EMAIL, WALK_IN)
+├── ReservationStatus.php       (PENDING_PAYMENT, CONFIRMED, CANCELLED, EXPIRED, CHECKED_IN, CHECKED_OUT, NO_SHOW)
+├── RoomHousekeepingStatus.php  (CLEAN, DIRTY, INSPECTING, OUT_OF_ORDER)
+├── RoomOccupancyStatus.php     (VACANT, OCCUPIED, DO_NOT_DISTURB)
+├── SubscriptionPlan.php        (FREE, BASIC, PRO, ENTERPRISE)
+├── SubscriptionStatus.php      (TRIAL, ACTIVE, PAST_DUE, CANCELED, INCOMPLETE, INCOMPLETE_EXPIRED)
+├── TaskStatus.php              (OPEN, IN_PROGRESS, COMPLETED, CANCELLED)
+└── TaskType.php                (MAINTENANCE, HOUSEKEEPING, FRONT_DESK, OTHER)
+```
 
-- **RLS Policies** on ALL hotel-scoped tables
-- Every query automatically filtered by `hotel_id`
-- Cross-tenant access blocked at database level
-- Tested in `tests/integration/rls-multi-tenancy.test.ts`
+### Multi-Tenancy System
+
+| Component | File | Description |
+|-----------|------|-------------|
+| `BelongsToHotel` trait | `app/Models/Traits/BelongsToHotel.php` | Auto-sets `hotel_id` on creation, adds scope |
+| `HotelScope` | `app/Models/Scopes/HotelScope.php` | Global query scope filters by `current_hotel_id` |
+| `ResolveHotelTenant` middleware | `app/Http/Middleware/ResolveHotelTenant.php` | Validates user access to `current_hotel_id` |
 
 ---
 
-## Phase 2: Core PMS — ✅ COMPLETE
+## Phase 2 (Laravel): Auth + Middleware + Seeders — ✅ COMPLETE
 
-### Reservation System
+### 4 Custom Middleware
 
-| Component | File | Description |
-|-----------|------|-------------|
-| `NewReservationDialog` | `src/components/reservations/NewReservationDialog.tsx` | Create new reservations with room type selection, dates, guest info |
-| `ReservationsList` | `src/components/reservations/ReservationsList.tsx` | Filterable list view |
-| `ReservationsCalendar` | `src/components/reservations/ReservationsCalendar.tsx` | Calendar view of reservations |
-| `ReservationsTimeline` | `src/components/reservations/ReservationsTimeline.tsx` | Timeline/Gantt view |
-| `ReservationDetails` | `src/components/reservations/ReservationDetails.tsx` | Full reservation detail panel |
-| `ReservationFilters` | `src/components/reservations/ReservationFilters.tsx` | Search + status + room type filters |
-| `create-reservation` | `supabase/functions/create-reservation/index.ts` (309 lines) | Server-side: validates availability, creates holds, creates folio, price snapshot |
+| Middleware | Alias | Description |
+|------------|-------|-------------|
+| `ForceJsonResponse` | (global) | Forces `Accept: application/json` on all requests |
+| `ResolveHotelTenant` | `hotel.tenant` | Validates `current_hotel_id` + user access to hotel |
+| `EnsureSubscriptionActive` | `subscription.active` | Blocks if subscription/trial expired (HTTP 402) |
+| `CheckModulePermission` | `permission:xxx` | Granular module permissions with user overrides |
 
-### Folio & Billing System
+**Permission System Architecture:**
+1. Super Admins → bypass all checks
+2. Hotel Owners → all permissions automatically
+3. Other roles → check `user_permissions` (explicit grant/revoke) first
+4. Fall back to → `role_permissions` (role-based defaults)
 
-| Component | File | Description |
-|-----------|------|-------------|
-| `BillingStats` | `src/components/billing/BillingStats.tsx` | Financial KPIs |
-| `ActiveFolios` | `src/components/billing/ActiveFolios.tsx` | Open folios list |
-| `FolioDetails` | `src/components/billing/FolioDetails.tsx` | Charges, payments, balance |
-| `RecentTransactions` | `src/components/billing/RecentTransactions.tsx` | Transaction history |
-| `PaymentMethods` | `src/components/billing/PaymentMethods.tsx` | Saved payment methods |
-| `InvoiceActions` | `src/components/billing/InvoiceActions.tsx` | Invoice generation/actions |
+### Auth API (6 endpoints)
 
-### CRM (Guest Management)
+| Method | Route | Description |
+|--------|-------|-------------|
+| `POST` | `/api/auth/register` | Creates hotel + owner + trial subscription + token |
+| `POST` | `/api/auth/login` | Returns Sanctum token (30 days expiry) |
+| `POST` | `/api/auth/logout` | Revokes current token |
+| `GET` | `/api/auth/me` | Profile + hotels + current role |
+| `PUT` | `/api/auth/me` | Update profile (name, email, phone) |
+| `POST` | `/api/auth/switch-hotel` | Switch active hotel context |
 
-| Component | File | Description |
-|-----------|------|-------------|
-| `CRMStats` | `src/components/crm/CRMStats.tsx` | Guest metrics |
-| `GuestsList` | `src/components/crm/GuestsList.tsx` | Searchable guest directory |
-| `GuestDetails` | `src/components/crm/GuestDetails.tsx` | Full guest profile with history |
+### Seeders & Demo Data
 
-### Authorization
+| Seeder | Description |
+|--------|-------------|
+| `PermissionSeeder` | 56 permissions across modules (dashboard, rooms, reservations, billing, etc.) |
+| `RolePermissionSeeder` | Default permissions for 4 roles: Manager, Reception, Housekeeping, Sales |
+| `DemoHotelSeeder` | Full demo hotel with 20 rooms (3 types), 2 rate plans, 2 users, trial subscription |
 
-| Component | File | Description |
-|-----------|------|-------------|
-| `PermissionGuard` | `src/components/auth/PermissionGuard.tsx` (54 lines) | Declarative permission wrapper |
-| `usePermissions` | `src/hooks/usePermissions.ts` (123 lines) | RBAC hook with `hasPermission()`, `canAccessModule()` |
-
-Permission matrix covers all 6 roles × all modules × CRUD actions.
+**Demo Users:**
+- `admin@hoteldemo.com` / `password` (HOTEL_OWNER)
+- `recepcion@hoteldemo.com` / `password` (RECEPTION)
 
 ---
 
-## Phase 3: Operations — ✅ COMPLETE
+## Phase 3 (Laravel): Core PMS — ✅ COMPLETE (previously Phase 4: "The Heart")
 
-### Front Desk
+### 8 Business Services
 
-| Component | File | Lines | Description |
-|-----------|------|-------|-------------|
-| `FrontDesk` | `src/pages/dashboard/FrontDesk.tsx` | 69 | Main page: arrivals, departures, in-house, room grid |
-| `TodayArrivals` | `src/components/front-desk/TodayArrivals.tsx` | — | Today's expected arrivals with check-in actions |
-| `TodayDepartures` | `src/components/front-desk/TodayDepartures.tsx` | — | Today's departures with check-out actions |
-| `InHouseGuests` | `src/components/front-desk/InHouseGuests.tsx` | — | Currently checked-in guests |
-| `RoomStatusGrid` | `src/components/front-desk/RoomStatusGrid.tsx` | — | Visual grid of all rooms by status |
-| `WalkInDialog` | `src/components/front-desk/WalkInDialog.tsx` | — | Complete walk-in flow (quote → create → confirm → check-in) |
-| `GuestListItem` | `src/components/front-desk/common/GuestListItem.tsx` | — | Reusable guest list item |
+| Service | File | Lines | Methods |
+|---------|------|-------|---------|
+| `AvailabilityService` | `app/Services/AvailabilityService.php` | 267 | `search()`, `quote()`, `checkRoomTypeAvailability()`, `getRatesForPeriod()` |
+| `ReservationService` | `app/Services/ReservationService.php` | 201 | `create()`, `cancel()`, `generateConfirmationCode()` |
+| `CheckInService` | `app/Services/CheckInService.php` | 140 | `checkInUnit()`, `checkInReservation()`, `updateReservationStatus()` |
+| `CheckOutService` | `app/Services/CheckOutService.php` | — | Check-out per unit/reservation, release room, mark dirty, update guest stats |
+| `WalkInService` | `app/Services/WalkInService.php` | — | Create guest + reservation + immediate check-in |
+| `FolioService` | `app/Services/FolioService.php` | 169 | `postCharge()`, `postAdjustment()`, `voidCharge()`, `postRoomCharges()`, `getSummary()` |
+| `PaymentService` | `app/Services/PaymentService.php` | 214 | `recordPayment()`, `confirmStripePayment()`, `failStripePayment()`, `refund()`, `confirmStripeRefund()` |
+| `NightAuditService` | `app/Services/NightAuditService.php` | 148 | `run()`, `processNoShows()`, `postRoomCharges()` |
 
-### Edge Functions (Operations)
+### 11 API Controllers
 
-| Function | File | Lines | Description |
-|----------|------|-------|-------------|
-| `check-in` | `supabase/functions/check-in/index.ts` | 217 | Validates reservation + room + date, updates status, creates room lock |
-| `check-out` | `supabase/functions/check-out/index.ts` | — | Validates balance, releases room, marks dirty, updates status |
+```
+app/Http/Controllers/Api/
+├── AuthController.php          (register, login, logout, me, updateProfile, switchHotel)
+├── FolioController.php         (show, summary, postCharge, postAdjustment, voidCharge, postRoomCharges)
+├── GuestController.php         (index, store, show, update, destroy, reservations, addNote)
+├── HotelController.php         (show, update, stats)
+├── NightAuditController.php    (night audit operations)
+├── NotificationController.php  (notification management)
+├── PaymentController.php       (index, store, show, refund, byReservation)
+├── RatePlanController.php      (CRUD for rate plans)
+├── ReservationController.php   (CRUD + availability + check-in/out + walk-in)
+├── RoomController.php          (CRUD + status grid + housekeeping actions)
+└── RoomTypeController.php      (CRUD for room types)
+```
 
-### Housekeeping
+### 77 API Routes (verified from `routes/api.php`)
 
-| Component | File | Description |
-|-----------|------|-------------|
-| `Housekeeping` | `src/pages/dashboard/Housekeeping.tsx` | Main page with 7 sub-components |
-| `DailyStats` | `src/components/housekeeping/DailyStats.tsx` | Daily cleaning statistics |
-| `RoomsByStatus` | `src/components/housekeeping/RoomsByStatus.tsx` | Rooms grouped by cleaning status |
-| `TodayCheckouts` | `src/components/housekeeping/TodayCheckouts.tsx` | Rooms needing cleaning |
-| `CleaningPriority` | `src/components/housekeeping/CleaningPriority.tsx` | Priority queue |
-| `MaterialsInventory` | `src/components/housekeeping/MaterialsInventory.tsx` | Supplies tracking |
-| `RoomChecklist` | `src/components/housekeeping/RoomChecklist.tsx` | Cleaning checklists |
-| `IncidentReports` | `src/components/housekeeping/IncidentReports.tsx` | Incident management |
+```
+Auth (6 routes):
+  POST   /api/auth/register
+  POST   /api/auth/login
+  POST   /api/auth/logout
+  GET    /api/auth/me
+  PUT    /api/auth/me
+  POST   /api/auth/switch-hotel
 
-### Task Management
+Hotel (3 routes):
+  GET    /api/hotel
+  PUT    /api/hotel                    [permission:settings.hotel]
+  GET    /api/hotel/stats              [permission:dashboard.stats]
 
-- `src/pages/dashboard/Tasks.tsx` — Full task CRUD with priority and assignment
+Room Types (5 routes):
+  GET    /api/room-types               [permission:room_types.view]
+  POST   /api/room-types               [permission:room_types.create]
+  GET    /api/room-types/{id}          [permission:room_types.view]
+  PUT    /api/room-types/{id}          [permission:room_types.update]
+  DELETE /api/room-types/{id}          [permission:room_types.delete]
 
-### Inventory Management
+Rooms (11 routes):
+  GET    /api/rooms                    [permission:rooms.view]
+  POST   /api/rooms                    [permission:rooms.create]
+  GET    /api/rooms/status-grid        [permission:rooms.view]
+  GET    /api/rooms/{id}               [permission:rooms.view]
+  PUT    /api/rooms/{id}               [permission:rooms.update]
+  DELETE /api/rooms/{id}               [permission:rooms.delete]
+  POST   /api/rooms/{id}/mark-clean    [permission:rooms.status]
+  POST   /api/rooms/{id}/mark-dirty    [permission:rooms.status]
+  POST   /api/rooms/{id}/mark-inspecting [permission:rooms.status]
+  POST   /api/rooms/{id}/out-of-order  [permission:rooms.status]
+  POST   /api/rooms/{id}/back-in-service [permission:rooms.status]
 
-- `src/pages/dashboard/Inventory.tsx` (414 lines) — Items CRUD, movements, Supabase queries
-- `src/components/inventory/InventoryCalendar.tsx` — Calendar view
-- `src/components/inventory/InventoryMovementDialog.tsx` — Record movements
+Guests (7 routes):
+  GET    /api/guests                   [permission:guests.view]
+  POST   /api/guests                   [permission:guests.create]
+  GET    /api/guests/{id}              [permission:guests.view]
+  PUT    /api/guests/{id}              [permission:guests.update]
+  DELETE /api/guests/{id}              [permission:guests.delete]
+  GET    /api/guests/{id}/reservations [permission:guests.view]
+  POST   /api/guests/{id}/notes        [permission:guests.notes]
+
+Availability (2 routes):
+  POST   /api/availability/search      [permission:reservations.view]
+  POST   /api/availability/quote       [permission:reservations.view]
+
+Reservations (10 routes):
+  GET    /api/reservations             [permission:reservations.view]
+  POST   /api/reservations             [permission:reservations.create]
+  GET    /api/reservations/today-arrivals    [permission:reservations.view]
+  GET    /api/reservations/today-departures  [permission:reservations.view]
+  GET    /api/reservations/in-house          [permission:reservations.view]
+  GET    /api/reservations/{id}              [permission:reservations.view]
+  POST   /api/reservations/{id}/check-in     [permission:reservations.check_in]
+  POST   /api/reservations/{id}/check-out    [permission:reservations.check_out]
+  POST   /api/reservations/{id}/cancel       [permission:reservations.cancel]
+  POST   /api/reservations/walk-in           [permission:reservations.walk_in]
+
+Reservation Units (2 routes):
+  POST   /api/reservation-units/{id}/check-in  [permission:reservations.check_in]
+  POST   /api/reservation-units/{id}/check-out [permission:reservations.check_out]
+
+Rate Plans (5 routes):
+  GET    /api/rate-plans               [permission:rates.view]
+  POST   /api/rate-plans               [permission:rates.update]
+  GET    /api/rate-plans/{id}          [permission:rates.view]
+  PUT    /api/rate-plans/{id}          [permission:rates.update]
+  DELETE /api/rate-plans/{id}          [permission:rates.update]
+
+Folios (8 routes):
+  GET    /api/folios/{id}              [permission:billing.view]
+  GET    /api/folios/{id}/summary      [permission:billing.view]
+  POST   /api/folios/{id}/charges      [permission:billing.post_charge]
+  POST   /api/folios/{id}/adjustments  [permission:billing.post_charge]
+  DELETE /api/folios/{id}/charges/{cid} [permission:billing.void_charge]
+  POST   /api/folios/{id}/post-room-charges [permission:billing.post_charge]
+  GET    /api/folios/{id}/payments     [permission:billing.view]
+  POST   /api/folios/{id}/payments     [permission:billing.collect_payment]
+
+Payments (3 routes):
+  GET    /api/payments/by-reservation/{id}  [permission:billing.view]
+  GET    /api/payments/{id}                 [permission:billing.view]
+  POST   /api/payments/{id}/refund          [permission:billing.refund]
+```
+
+### Form Request Validation (12 classes)
+
+```
+app/Http/Requests/
+├── Auth/LoginRequest.php
+├── Auth/RegisterRequest.php
+├── Folio/PostAdjustmentRequest.php
+├── Folio/PostChargeRequest.php
+├── Guest/StoreGuestRequest.php
+├── Guest/UpdateGuestRequest.php
+├── Payment/RecordPaymentRequest.php
+├── Payment/RefundRequest.php
+├── RatePlan/StoreRatePlanRequest.php
+├── RatePlan/UpdateRatePlanRequest.php
+├── Room/StoreRoomRequest.php
+└── Room/UpdateRoomRequest.php
+```
+
+### API Resources (13 classes)
+
+```
+app/Http/Resources/
+├── FolioChargeResource.php
+├── FolioResource.php
+├── GuestNoteResource.php
+├── GuestResource.php
+├── HotelResource.php
+├── PaymentResource.php
+├── RatePlanResource.php
+├── RefundResource.php
+├── ReservationResource.php
+├── ReservationUnitResource.php
+├── RoomResource.php
+├── RoomTypeResource.php
+└── UserResource.php
+```
 
 ---
 
-## Phase 4: Payments — ✅ COMPLETE
+## Phase 4 (Laravel): Operations — ✅ COMPLETE
 
-### Stripe Edge Functions (19 total)
+### Check-In Flow (verified in CheckInService.php)
 
-| Function | File | Description |
-|----------|------|-------------|
-| `create-payment-intent` | `supabase/functions/create-payment-intent/index.ts` | Creates Stripe PaymentIntent |
-| `confirm-payment` | `supabase/functions/confirm-payment/index.ts` | Confirms payment |
-| `confirm-reservation-payment` | `supabase/functions/confirm-reservation-payment/index.ts` | Confirms + links to reservation |
-| `create-refund` | `supabase/functions/create-refund/index.ts` | Issues Stripe refund with reason |
-| `get-payment-history` | `supabase/functions/get-payment-history/index.ts` | Lists payment history |
-| `get-payment-method` | `supabase/functions/get-payment-method/index.ts` | Retrieves saved payment methods |
-| `stripe-payment-webhook` | `supabase/functions/stripe-payment-webhook/index.ts` | **400 lines** — Handles `payment_intent.succeeded`, `payment_intent.payment_failed`, `charge.refunded` |
-| `stripe-subscription-webhook` | `supabase/functions/stripe-subscription-webhook/index.ts` | Subscription lifecycle events |
+```
+1. Validate unit status = PENDING
+2. Validate room is VACANT + CLEAN + correct type
+3. DB Transaction:
+   a. Assign room to unit, set status = CHECKED_IN
+   b. Mark room occupancy = OCCUPIED
+   c. Create RoomLocks for all stay dates
+   d. Update reservation status (CONFIRMED → CHECKED_IN)
+4. Return unit with room, roomType, reservation, guest
+```
 
-### Subscription Management
+### Check-Out Flow (verified in CheckOutService.php)
 
-| Function | Description |
+```
+1. Validate reservation is CHECKED_IN
+2. Validate folio balance = 0 (or force flag)
+3. DB Transaction:
+   a. Set unit status = CHECKED_OUT
+   b. Mark room occupancy = VACANT, housekeeping = DIRTY
+   c. Delete future room locks
+   d. Update reservation status, set checked_out_at
+   e. Update guest stats (total_stays++, total_spent)
+4. Return refreshed reservation
+```
+
+### Walk-In Flow (verified in WalkInService.php)
+
+```
+1. Create or find guest
+2. Create reservation (CONFIRMED, source WALK_IN)
+3. Immediate check-in (auto-assign room)
+4. Return everything in one response
+```
+
+### Room Status Management (5 housekeeping endpoints)
+
+| Endpoint | Description |
 |----------|-------------|
-| `create-subscription-checkout` | Creates Stripe Checkout session |
-| `ensure-subscription` | Validates active subscription |
-| `reset-subscription` | Resets subscription status |
-| `create-customer-portal` | Opens Stripe Customer Portal |
-
-### Frontend Payment Components
-
-| Component | Description |
-|-----------|-------------|
-| `CheckoutForm` | Stripe Elements checkout form |
-| `PaymentDialog` | Payment modal with amount + method |
-| `useSubscription` | Hook for subscription status |
-| `subscriptionStore` | Zustand store for subscription state |
-
-### Shared Utilities
-
-| File | Description |
-|------|-------------|
-| `_shared/cors.ts` | CORS handling for Edge Functions |
-| `_shared/supabase.ts` | Service client helper |
-| `_shared/validation.ts` | Zod validation helpers |
-| `_shared/rate-limiter.ts` | Rate limiting (see Phase 6) |
-| `_shared/sentry.ts` | Error tracking (see Phase 5) |
+| `POST /rooms/{id}/mark-clean` | Housekeeping completed |
+| `POST /rooms/{id}/mark-dirty` | Room needs cleaning |
+| `POST /rooms/{id}/mark-inspecting` | Under inspection |
+| `POST /rooms/{id}/out-of-order` | Maintenance/blocked |
+| `POST /rooms/{id}/back-in-service` | Return to service |
 
 ---
 
-## Phase 5: Automation — ⚠️ ~80% COMPLETE
+## Phase 5 (Laravel): Payments + Billing — ✅ COMPLETE
+
+### Payment Providers Supported
+
+| Provider | Status | Description |
+|----------|--------|-------------|
+| `CASH` | ✅ | Immediate SUCCEEDED |
+| `CARD_TERMINAL` | ✅ | Immediate SUCCEEDED, stores card_brand/last_four |
+| `TRANSFER` | ✅ | Immediate SUCCEEDED |
+| `STRIPE` | ✅ | PENDING until webhook confirms |
+| `MANUAL` | ✅ | Immediate SUCCEEDED, for manual adjustments |
+
+### Billing Features
+
+| Feature | Status | Details |
+|---------|--------|---------|
+| Post charges | ✅ | ROOM, F&B, MINIBAR, TAX, EXTRA categories |
+| Post adjustments | ✅ | Negative charges, auto-recalculate balance |
+| Void charges | ✅ | Delete unposted charges |
+| Auto room charges | ✅ | Nightly rate posting per unit, duplicate detection |
+| Folio summary | ✅ | Grouped by category with totals |
+| Stripe confirm | ✅ | Idempotent confirmation via `confirmStripePayment()` |
+| Stripe fail | ✅ | Mark failed with reason |
+| Refunds (partial/full) | ✅ | Validates remaining refundable amount |
+| Stripe refund confirm | ✅ | Via webhook, `confirmStripeRefund()` |
+| Balance recalculation | ✅ | `Folio::recalculateBalance()` after every operation |
+
+### Verified Billing Flow Example
+
+```
+Charges:
+  ROOM Unit #1   $2,500 × 1 night  = $2,500
+  ROOM Unit #2   $1,400 × 1 night  = $1,400
+  TAX (IVA+ISH)                     =   $534
+  MINIBAR (extra charge)            =   $200
+  ─────────────────────────────────────────
+  Total Charges                     = $4,634
+
+Payments:
+  CASH    $2,000 → SUCCEEDED
+  CARD    $1,634 → SUCCEEDED
+  STRIPE  $1,000 → PENDING → SUCCEEDED (webhook)
+  ─────────────────────────────────────────
+  Total Payments                    = $4,634
+
+Refund:
+  STRIPE -$200 (REQUESTED_BY_CUSTOMER)
+  ─────────────────────────────────────────
+  Net Balance = $4,634 - $4,434 = $200 (balance due)
+```
+
+---
+
+## Phase 6 (Laravel): Automation — ⚠️ ~70% COMPLETE
 
 ### ✅ Implemented
 
-| Component | File | Description |
-|-----------|------|-------------|
-| `send-reservation-confirmation` | `supabase/functions/send-reservation-confirmation/index.ts` | Email with reservation details |
-| `send-staff-invitation` | `supabase/functions/send-staff-invitation/index.ts` | Staff invite email with token |
-| `send-email` | `supabase/functions/send-email/index.ts` | Generic email sender |
-| Notifications System | `supabase/migrations/20251103000002_comprehensive_notifications.sql` | DB-level notifications |
-| `NotificationBell` | `src/components/notifications/NotificationBell.tsx` | Real-time notification indicator |
-| `NotificationsList` | `src/components/notifications/NotificationsList.tsx` | Notification feed |
-| Sentry Integration | `supabase/functions/_shared/sentry.ts` | Error tracking in webhooks |
+| Feature | Details |
+|---------|---------|
+| **Night Audit Service** | `NightAuditService.php` (148 lines) — Full implementation: no-shows, room charges, occupancy stats, ADR/RevPAR snapshot |
+| **Night Audit Controller** | `NightAuditController.php` — API endpoint to trigger audit |
+| **Night Audit Record** | `NightAudit` model + migration — Stores daily snapshot |
+| **Console Scheduler** | `routes/console.php` — Basic kernel setup for scheduled commands |
 
-### ⚠️ Missing / Partial
+### ⚠️ Not Yet Implemented
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| **Night Audit Job** | 🔲 Not implemented | Should close day, freeze metrics, mark no-shows |
-| **Expire Inventory Holds** | 🔲 Not implemented | Should run every 5 min to release expired holds |
-| **Scheduled Notifications** | 🔲 Not implemented | Daily arrival/departure alerts at 7am |
-| **No-Show Detection** | 🔲 Not implemented | Should run at 2pm to mark confirmed as no-show |
-| **Daily Report Generation** | 🔲 Not implemented | Nightly revenue/occupancy summary |
-| **OTA Inventory Sync** | 🔲 Not implemented | Push availability to Booking/Expedia every 15 min |
-
-> **Note:** These items are better suited for Laravel + Redis + Horizon (scheduled jobs). They will be implemented in the Laravel backend migration.
+| Feature | Status | Notes |
+|---------|--------|-------|
+| **Horizon + Redis queues** | 🔲 | Needed for production job processing |
+| **Expire Inventory Holds (cron)** | 🔲 | Should release expired holds every 5 min |
+| **Automated Night Audit (cron)** | 🔲 | Should run daily at 2am automatically |
+| **Email Notifications** | 🔲 | Reservation confirmation, staff invites (have Supabase version) |
+| **Webhook Jobs** | 🔲 | Stripe webhooks should be async with retries |
+| **OTA Inventory Push (cron)** | 🔲 | Push availability to Booking/Expedia |
 
 ---
 
-## Phase 6: Security & Polish — ✅ 95% COMPLETE
+## Phase 7 (Laravel): Security & Polish — ⚠️ ~50%
 
-### Security Module
+### ✅ Implemented
 
-| Component | File | Description |
-|-----------|------|-------------|
-| `Security` page | `src/pages/dashboard/Security.tsx` | 5-tab security center |
-| `UserManagement` | `src/components/security/UserManagement.tsx` | User CRUD + role assignment |
-| `PermissionsManager` | `src/components/security/PermissionsManager.tsx` | Role permission matrix |
-| `AuditLogs` | `src/components/security/AuditLogs.tsx` | Searchable audit trail |
-| `DataAccessLogs` | `src/components/security/DataAccessLogs.tsx` | GDPR data access log |
-| `GDPRRequests` | `src/components/security/GDPRRequests.tsx` | Data export/deletion requests |
+| Feature | Details |
+|---------|---------|
+| 56 granular permissions | Across all modules |
+| Role-based access | 4 default roles with permission matrix |
+| User-level overrides | Explicit grant/revoke per user per hotel |
+| Subscription enforcement | HTTP 402 for expired/inactive |
+| Multi-tenancy | Complete tenant isolation |
+| ForceJSON | All responses forced to JSON |
+| Form validation | 12 FormRequest classes |
+| API Resources | 13 resource transformers |
 
-### Rate Limiting
+### ⚠️ Not Yet Implemented
 
-- **File:** `supabase/functions/_shared/rate-limiter.ts` (220 lines)
-- **Method:** Sliding window with Upstash Redis REST API
-- **Limits:** Per-function configuration (payments strict, info relaxed)
-- **Features:** IP + user ID tracking, rate limit headers, graceful degradation
-
-### Test Suite
-
-| Test File | Lines | Coverage |
-|-----------|-------|----------|
-| `tests/integration/rls-multi-tenancy.test.ts` | 181 | Cross-tenant RLS verification (4 tests) |
-| `tests/integration/rbac-permissions.test.ts` | 389 | Role-based access control (8 tests) |
-| `tests/integration/stripe-webhook-sync.test.ts` | — | Webhook processing verification |
-| `tests/integration/subscription-limits.test.ts` | — | Plan feature limits |
-| `tests/e2e/check-in-out-cycle.test.ts` | — | Full check-in/out E2E flow |
-| `tests/e2e/payment-flow.test.ts` | — | Stripe payment E2E flow |
-| `src/hooks/__tests__/use-toast.test.tsx` | — | Unit test for toast hook |
+| Feature | Status | Notes |
+|---------|--------|-------|
+| **Audit Logs** (write) | 🔲 | Model exists, no auto-logging yet |
+| **Rate Limiting** | 🔲 | Have Supabase version, need Laravel throttle |
+| **GDPR Endpoints** | 🔲 | Have Supabase version, need Laravel implementation |
+| **CashierShift endpoints** | 🔲 | Model exists, no controller yet |
+| **Reporting endpoints** | 🔲 | ADR/RevPAR history from night_audits |
+| **Staff Invitation flow** | 🔲 | Model exists, no email sending yet |
+| **API tests** | 🔲 | PHPUnit setup ready, tests not written |
 
 ---
 
-## Bonus: Extra Modules (Not in Original Plan)
+# PART 2: FRONTEND (hotelmate-core / Supabase)
 
-These modules were implemented beyond the original 6-phase plan:
+## Frontend Stack
 
-### Channel Manager
-- `src/pages/dashboard/Channels.tsx`
-- Components: `ChannelStats`, `ChannelsList`, `InventorySync`, `RecentBookings`, `ConnectChannelDialog`
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| React | 18 | UI framework |
+| Vite | Latest | Build tool |
+| TypeScript | Latest | Type safety |
+| shadcn-ui | Latest | Component library |
+| Tailwind CSS | Latest | Styling |
+| React Query | v5 | Server state |
+| React Router | v6 | Routing |
+| Zustand | Latest | Client state |
+| Supabase JS | Latest | Backend client |
+| Stripe JS | Latest | Payment UI |
+| Lucide React | Latest | Icons |
 
-### Revenue Management
-- `src/pages/dashboard/Revenue.tsx` (180 lines)
-- KPIs: Occupancy, ADR, RevPAR, Monthly Revenue
-- Components: `RateCalendar`, `CompetitorRates`, `RevenueSettings`, `RatePlansSettings`
-- DB: `competitor_rates`, `rate_by_day`, `rate_plans` tables
+## Frontend Modules (17 lazy-loaded pages)
 
-### Analytics & BI
-- `src/pages/dashboard/Analytics.tsx`
-- Components: `AnalyticsMetrics`, `OccupancyChart`, `RevenueChart`, `ChannelDistribution`, `RevenueByChannel`, `RevenueByRoomType`
+### Authentication
+- `Auth.tsx` — Login, Register, Password Reset, Demo Mode
+- `PermissionGuard.tsx` — Declarative permission wrapper
+- `usePermissions.ts` — RBAC hook (6 roles × all modules)
 
-### Reports
-- `src/pages/dashboard/Reports.tsx`
+### Dashboard
+- `DashboardHome.tsx` — Main overview with KPIs
+- `DashboardHomeAlt.tsx` — Alternative layout
 
-### Settings
-- `src/pages/dashboard/Settings.tsx`
-- Sub-components for hotel settings, rate plans, etc.
+### Core PMS
+- `FrontDesk.tsx` — Today arrivals/departures, in-house, room grid, walk-in
+- `Reservations.tsx` — Timeline, list, calendar views with filters
+- `CRM.tsx` — Guest management, notes, details
 
----
+### Operations
+- `Housekeeping.tsx` — 7 sub-components (stats, rooms, priorities, checklists, incidents)
+- `Tasks.tsx` — Task management with priority/assignment
+- `Inventory.tsx` — Items CRUD, movements, calendar
 
-## Architecture Highlights
+### Financial
+- `Billing.tsx` — Stats, folios, transactions, payment methods
+- `Revenue.tsx` — KPIs (ADR, RevPAR), rate calendar, competitors, dynamic pricing
 
-### Frontend Architecture
+### Management
+- `Channels.tsx` — OTA connections, sync, recent bookings
+- `Analytics.tsx` — Occupancy charts, revenue by channel/room type
+- `Reports.tsx` — Report generation
+- `Staff.tsx` — Staff management, invitations, roles
+- `Security.tsx` — Users, permissions, audit logs, GDPR
+- `Settings.tsx` — Hotel configuration
 
-```
-src/
-├── App.tsx                    # Router with lazy loading + code splitting
-├── pages/
-│   ├── Auth.tsx               # Login/Register/Reset
-│   ├── Dashboard.tsx          # Layout with sidebar + outlet
-│   ├── Index.tsx              # Landing page
-│   └── dashboard/             # 17 lazy-loaded modules
-├── components/
-│   ├── auth/                  # PermissionGuard
-│   ├── analytics/             # 6 chart components
-│   ├── billing/               # 6 billing components
-│   ├── channels/              # 5 channel components
-│   ├── crm/                   # 3 CRM components
-│   ├── dashboard/             # Dashboard widgets
-│   ├── front-desk/            # 7 front desk components
-│   ├── housekeeping/          # 7 housekeeping components
-│   ├── inventory/             # 2 inventory components
-│   ├── notifications/         # 2 notification components
-│   ├── payments/              # 2 payment components
-│   ├── reservations/          # 5 reservation components
-│   ├── revenue/               # 3 revenue components
-│   ├── security/              # 5 security components
-│   ├── settings/              # Settings components
-│   ├── staff/                 # Staff components
-│   ├── subscription/          # Subscription components
-│   ├── tasks/                 # Task components
-│   └── ui/                    # shadcn-ui components
-├── hooks/
-│   ├── usePermissions.ts      # RBAC hook
-│   ├── useSubscription.ts     # Subscription hook
-│   ├── useDashboardMetrics.ts # Dashboard data hook
-│   ├── useSupabaseQuery.ts    # Generic query hook
-│   └── useSupabaseMutation.ts # Generic mutation hook
-├── store/
-│   └── subscriptionStore.ts   # Zustand subscription state
-├── integrations/supabase/
-│   ├── client.ts              # Supabase client setup
-│   └── types.ts               # 2,596 lines of auto-generated types
-└── lib/
-    ├── utils.ts               # General utilities
-    ├── stripe.ts              # Stripe client setup
-    └── date-utils.ts          # Date formatting helpers
-```
+## Supabase Edge Functions (19)
 
-### Backend Architecture (Supabase)
+| Function | Lines | Purpose |
+|----------|-------|---------|
+| `check-in` | 217 | Guest check-in with validation |
+| `check-out` | ~200 | Guest check-out with room release |
+| `create-reservation` | 309 | Reservation with inventory holds |
+| `create-payment-intent` | ~150 | Stripe PaymentIntent creation |
+| `confirm-payment` | ~100 | Payment confirmation |
+| `confirm-reservation-payment` | ~120 | Confirm + link to reservation |
+| `create-refund` | ~100 | Issue Stripe refund |
+| `get-payment-history` | ~80 | List payment history |
+| `get-payment-method` | ~80 | Retrieve saved methods |
+| `stripe-payment-webhook` | 400 | Handle Stripe payment events |
+| `stripe-subscription-webhook` | ~200 | Handle subscription events |
+| `create-subscription-checkout` | ~100 | Stripe Checkout session |
+| `ensure-subscription` | ~80 | Validate active subscription |
+| `reset-subscription` | ~60 | Reset subscription status |
+| `create-customer-portal` | ~60 | Stripe Customer Portal |
+| `send-email` | ~80 | Generic email sender |
+| `send-reservation-confirmation` | ~100 | Confirmation email |
+| `send-staff-invitation` | ~100 | Staff invite email |
+| `_shared/rate-limiter.ts` | 220 | Sliding window rate limiting |
 
-```
-supabase/
-├── config.toml                # Supabase project config
-├── migrations/                # 46 SQL migration files
-│   ├── Core tables (hotels, rooms, room_types, guests, reservations)
-│   ├── Financial (folios, folio_charges, stripe_payments, stripe_refunds)
-│   ├── Operations (cleaning_checklists, incidents, tasks, inventory)
-│   ├── Revenue (rate_plans, rate_by_day, competitor_rates, promo_codes)
-│   ├── Security (audit_logs, data_access_logs, data_requests, user_roles)
-│   ├── RLS policies for every table
-│   └── Functions (calculate_dashboard_metrics, create_folio_functions)
-└── functions/                 # 19 Edge Functions + 5 shared utilities
-    ├── _shared/               # cors, supabase, validation, rate-limiter, sentry
-    ├── check-in/              # Guest check-in with validation
-    ├── check-out/             # Guest check-out
-    ├── create-reservation/    # Reservation with inventory holds
-    ├── Payments (6 functions) # Stripe intent, confirm, refund, history, methods, portal
-    ├── Subscriptions (4)      # Checkout, ensure, reset, webhook
-    └── Emails (3)             # Generic, reservation confirmation, staff invitation
-```
+## Supabase Test Suite
 
-### Performance Optimizations
-
-- ✅ **Code splitting** — All dashboard pages lazy-loaded
-- ✅ **Error Boundary** — Global error catching
-- ✅ **React Query** — Server state management with caching
-- ✅ **Skeleton loaders** — `DashboardSkeleton` during lazy loading
-- ✅ **Mobile responsive** — `MobileBottomNav` component
+| Test File | Type | Coverage |
+|-----------|------|----------|
+| `rls-multi-tenancy.test.ts` | Integration | Cross-tenant RLS (4 tests) |
+| `rbac-permissions.test.ts` | Integration | Role-based access (8 tests) |
+| `stripe-webhook-sync.test.ts` | Integration | Webhook processing |
+| `subscription-limits.test.ts` | Integration | Plan feature limits |
+| `check-in-out-cycle.test.ts` | E2E | Full check-in/out flow |
+| `payment-flow.test.ts` | E2E | Stripe payment flow |
 
 ---
 
-## Next Steps: Phase 7 — Frontend Migration to Laravel API
+# PART 3: WHAT'S NEXT
 
-When ready to proceed with the Laravel backend:
+## Immediate Priorities (Phase 6-7 Completion)
 
-1. **Create `hotelmate-api` repo** — Fresh Laravel 11 + PHP 8.3 install
-2. **Implement Laravel models** — Mirror the 30+ Supabase tables
-3. **Create API endpoints** — REST API matching the plan design
-4. **Create `src/lib/api.ts`** — Abstraction layer in frontend
-5. **Migrate module by module:**
-   - Auth (Supabase Auth → Laravel Sanctum)
-   - Rooms/RoomTypes/Hotels
-   - Reservations + Folios
-   - Payments (Stripe SDK)
-   - All other modules
-6. **Remove Supabase dependency** — Delete `@supabase/supabase-js`
-7. **Deploy to Hostinger VPS** — Laravel + MySQL + Redis
+### Laravel Backend
+1. **Redis + Horizon setup** — Production queue processing
+2. **Stripe Webhook endpoint** — Async job with retries
+3. **Scheduled commands** — Night audit, expire holds, no-show detection
+4. **Email notifications** — Migrate from Supabase Edge Functions
+5. **Audit log middleware** — Auto-log all mutations
+6. **API rate limiting** — Laravel throttle middleware
+7. **CashierShift endpoints** — Open/close shifts
+8. **Reporting endpoints** — Historical ADR/RevPAR from night_audits
+9. **Staff invitation flow** — Send email, accept token, create user
+10. **API tests** — PHPUnit feature tests for all endpoints
+
+### Frontend Migration (Phase 8)
+1. **Create `src/lib/api.ts`** — Abstract Supabase calls behind API client
+2. **Switch to Laravel API** — Module by module
+3. **Remove Supabase dependency** — Delete `@supabase/supabase-js`
+4. **Deploy to production** — Hostinger VPS (Laravel + MySQL + Redis)
 
 ---
 
-*Report generated on 2026-02-12. This document reflects the current state of the `hotelmate-core` project at commit `1b6cb23`.*
+## File Counts Summary
+
+| Category | Count |
+|----------|-------|
+| Laravel Models | 43 |
+| Laravel Enums | 17 |
+| Laravel Services | 8 |
+| Laravel Controllers | 11 |
+| Laravel Middleware | 4 |
+| Laravel Migrations | 21 |
+| Laravel Requests | 12 |
+| Laravel Resources | 13 |
+| Laravel API Routes | 77 |
+| React Components | 128+ |
+| React Pages | 17 |
+| React Hooks | 5+ |
+| Supabase Migrations | 46 |
+| Supabase Edge Functions | 19 |
+| Integration Tests | 4 |
+| E2E Tests | 2 |
+
+---
+
+*Report generated on 2026-02-12. This document reflects verified code from both `hotelmate-core` and `hotelmate-api` projects.*
