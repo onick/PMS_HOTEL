@@ -27,6 +27,8 @@ const Staff = lazy(() => import("./pages/dashboard/Staff"));
 const Analytics = lazy(() => import("./pages/dashboard/Analytics"));
 const Revenue = lazy(() => import("./pages/dashboard/Revenue"));
 const Reports = lazy(() => import("./pages/dashboard/Reports"));
+const ManagerDashboard = lazy(() => import("./pages/dashboard/ManagerDashboard"));
+const ManagerReports = lazy(() => import("./pages/dashboard/ManagerReports"));
 const Security = lazy(() => import("./pages/dashboard/Security"));
 const Settings = lazy(() => import("./pages/dashboard/Settings"));
 const Profile = lazy(() => import("./pages/dashboard/Profile"));
@@ -63,6 +65,8 @@ const App = () => {
                   <Route path="staff" element={<Staff />} />
                   <Route path="analytics" element={<Analytics />} />
                   <Route path="reports" element={<Reports />} />
+                  <Route path="manager" element={<ManagerDashboard />} />
+                  <Route path="manager-reports" element={<ManagerReports />} />
                   <Route path="security" element={<Security />} />
                   <Route path="settings" element={<Settings />} />
                   <Route path="profile" element={<Profile />} />
