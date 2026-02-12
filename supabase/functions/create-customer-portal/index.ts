@@ -1,30 +1,34 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { handleCorsPrelight, createCorsResponse } from '../_shared/cors.ts';
+import { getSupabaseServiceClient } from '../_shared/supabase.ts';
+import { z } from 'https://deno.land/x/zod@v3.22.4/mod.ts';
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") as string, {
-  apiVersion: "2023-10-16",
+const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
+if (!STRIPE_SECRET_KEY) {
+  throw new Error('STRIPE_SECRET_KEY required');
+}
+
+const stripe = new Stripe(STRIPE_SECRET_KEY, { apiVersion: "2023-10-16" });
+
+const CustomerPortalSchema = z.object({
+  hotelId: z.string().uuid('Invalid hotel ID'),
+  returnUrl: z.string().url('Invalid return URL').optional(),
 });
 
-const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+  const origin = req.headers.get('origin');
+
+  if (req.method === 'OPTIONS') {
+    return handleCorsPrelight(origin);
   }
 
   try {
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
+    const supabase = getSupabaseServiceClient();
     const authHeader = req.headers.get("Authorization");
+    
     if (!authHeader) {
-      throw new Error("No authorization header");
+      return createCorsResponse({ error: 'Unauthorized' }, 401, origin);
     }
 
     const { data: { user }, error: authError } = await supabase.auth.getUser(
@@ -32,91 +36,45 @@ serve(async (req) => {
     );
 
     if (authError || !user) {
-      throw new Error("Unauthorized");
+      return createCorsResponse({ error: 'Unauthorized' }, 401, origin);
     }
 
-    const { hotelId } = await req.json();
-
-    if (!hotelId) {
-      throw new Error("Missing hotelId");
+    const body = await req.json();
+    const result = CustomerPortalSchema.safeParse(body);
+    
+    if (!result.success) {
+      return createCorsResponse({ error: 'Validation failed', details: result.error.flatten() }, 400, origin);
     }
 
-    // Verify user has access
-    const { data: userRole, error: roleError } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", user.id)
-      .eq("hotel_id", hotelId)
-      .single();
+    const { hotelId, returnUrl } = result.data;
 
-    if (roleError || !userRole) {
-      throw new Error("User does not have access to this hotel");
-    }
-
-    if (!["SUPER_ADMIN", "HOTEL_OWNER"].includes(userRole.role)) {
-      throw new Error("Only hotel owners can manage subscriptions");
-    }
-
-    // Get Stripe customer ID and hotel info
-    const { data: subscription, error: subError } = await supabase
+    // Get subscription
+    const { data: subscription } = await supabase
       .from("subscriptions")
       .select("stripe_customer_id")
       .eq("hotel_id", hotelId)
       .single();
 
-    if (subError) {
-      throw new Error("No subscription found for this hotel");
+    if (!subscription?.stripe_customer_id) {
+      return createCorsResponse({ error: 'No active subscription found' }, 404, origin);
     }
 
-    let customerId = subscription?.stripe_customer_id;
-
-    // If no Stripe customer exists yet, create one
-    if (!customerId) {
-      const { data: hotel } = await supabase
-        .from("hotels")
-        .select("name")
-        .eq("id", hotelId)
-        .single();
-
-      const customer = await stripe.customers.create({
-        email: user.email,
-        name: hotel?.name || "Hotel",
-        metadata: {
-          hotel_id: hotelId,
-          user_id: user.id,
-        },
-      });
-
-      // Update subscription with customer ID
-      await supabase
-        .from("subscriptions")
-        .update({ stripe_customer_id: customer.id })
-        .eq("hotel_id", hotelId);
-
-      customerId = customer.id;
-    }
-
-    // Create portal session with configuration
+    // Create portal session
     const session = await stripe.billingPortal.sessions.create({
-      customer: customerId,
-      return_url: `${req.headers.get("origin")}/dashboard/profile?tab=subscription`,
+      customer: subscription.stripe_customer_id,
+      return_url: returnUrl || `${origin}/dashboard/profile`,
     });
 
-    return new Response(
-      JSON.stringify({ url: session.url }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      }
-    );
+    console.log(`✅ Customer portal created for hotel ${hotelId}`);
+
+    return createCorsResponse({ url: session.url }, 200, origin);
+
   } catch (error: any) {
-    console.error("Error creating customer portal session:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 400,
-      }
+    console.error("❌ Error creating portal:", error);
+    return createCorsResponse(
+      { error: error.message || 'Failed to create portal' },
+      500,
+      origin
     );
   }
 });

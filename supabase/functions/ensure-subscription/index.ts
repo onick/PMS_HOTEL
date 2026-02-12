@@ -1,62 +1,53 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { handleCorsPrelight, createCorsResponse } from '../_shared/cors.ts';
+import { getSupabaseServiceClient } from '../_shared/supabase.ts';
+import { z } from 'https://deno.land/x/zod@v3.22.4/mod.ts';
 
-const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+const EnsureSubscriptionSchema = z.object({
+  hotelId: z.string().uuid('Invalid hotel ID'),
+});
 
 serve(async (req) => {
-  // Handle CORS preflight request
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+  const origin = req.headers.get('origin');
+
+  if (req.method === 'OPTIONS') {
+    return handleCorsPrelight(origin);
   }
 
   try {
-    const { hotelId } = await req.json();
+    const supabase = getSupabaseServiceClient();
+    const body = await req.json();
+    const result = EnsureSubscriptionSchema.safeParse(body);
 
-    if (!hotelId) {
-      return new Response(
-        JSON.stringify({ error: "hotel_id is required" }),
-        {
-          status: 400,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
+    if (!result.success) {
+      return createCorsResponse(
+        { error: 'Validation failed', details: result.error.flatten() }, 
+        400, 
+        origin
       );
     }
 
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const { hotelId } = result.data;
 
     // Check if subscription exists
     const { data: existing } = await supabase
-      .from("subscriptions")
-      .select("id")
-      .eq("hotel_id", hotelId)
+      .from('subscriptions')
+      .select('*')
+      .eq('hotel_id', hotelId)
       .single();
 
     if (existing) {
-      return new Response(
-        JSON.stringify({
-          message: "Subscription already exists",
-          subscription_id: existing.id
-        }),
-        {
-          status: 200,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+      console.log(`✅ Subscription already exists for hotel ${hotelId}`);
+      return createCorsResponse({ subscription: existing }, 200, origin);
     }
 
-    // Create subscription
-    const { data, error } = await supabase
-      .from("subscriptions")
+    // Create default FREE subscription
+    const { data: newSubscription, error } = await supabase
+      .from('subscriptions')
       .insert({
         hotel_id: hotelId,
-        plan: "FREE",
-        status: "TRIAL",
+        plan: 'FREE',
+        status: 'TRIAL',
         current_period_start: new Date().toISOString(),
         current_period_end: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
         trial_ends_at: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -65,34 +56,20 @@ serve(async (req) => {
       .single();
 
     if (error) {
-      console.error("Error creating subscription:", error);
-      return new Response(
-        JSON.stringify({ error: error.message }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        }
-      );
+      console.error('❌ Error creating subscription:', error);
+      throw new Error(`Failed to create subscription: ${error.message}`);
     }
 
-    return new Response(
-      JSON.stringify({
-        message: "Subscription created successfully",
-        data
-      }),
-      {
-        status: 200,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
-    );
-  } catch (err: any) {
-    console.error("Error:", err.message);
-    return new Response(
-      JSON.stringify({ error: err.message }),
-      {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      }
+    console.log(`✅ Created FREE trial subscription for hotel ${hotelId}`);
+
+    return createCorsResponse({ subscription: newSubscription }, 201, origin);
+
+  } catch (error: any) {
+    console.error("❌ Error ensuring subscription:", error);
+    return createCorsResponse(
+      { error: error.message || 'Failed to ensure subscription' },
+      500,
+      origin
     );
   }
 });

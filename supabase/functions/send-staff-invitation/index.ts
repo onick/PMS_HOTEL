@@ -1,63 +1,42 @@
+// ===========================================
+// SEND STAFF INVITATION EMAIL
+// ===========================================
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { handleCorsPrelight, createCorsResponse } from '../_shared/cors.ts';
+import { getSupabaseServiceClient } from '../_shared/supabase.ts';
+import { z } from 'https://deno.land/x/zod@v3.22.4/mod.ts';
 
+// Validate environment variables on startup
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const APP_URL = Deno.env.get("APP_URL") || "https://app.solaris-pms.com";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-interface StaffInvitationRequest {
-  invitation_id: string;
+if (!RESEND_API_KEY) {
+  throw new Error('RESEND_API_KEY environment variable is required');
 }
 
+// Validation schema
+const StaffInvitationSchema = z.object({
+  invitation_id: z.string().uuid('Invalid invitation ID'),
+});
+
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+  const origin = req.headers.get('origin');
+
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return handleCorsPrelight(origin);
   }
 
   try {
-    const { invitation_id } = await req.json() as StaffInvitationRequest;
+    console.log('📧 Send staff invitation request received');
 
-    if (!invitation_id) {
-      throw new Error("Missing invitation_id");
-    }
+    // Validate request body
+    const body = await req.json();
+    const { invitation_id } = StaffInvitationSchema.parse(body);
 
-    // Create Supabase client
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+    console.log(`✅ Validated invitation ID: ${invitation_id}`);
 
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-interface StaffInvitationRequest {
-  invitation_id: string;
-}
-
-serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
-  }
-
-  try {
-    const { invitation_id } = await req.json() as StaffInvitationRequest;
-
-    if (!invitation_id) {
-      throw new Error("Missing invitation_id");
-    }
-
-    // Create Supabase client
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    const supabase = getSupabaseServiceClient();
 
     // Fetch invitation details
     const { data: invitation, error: invError } = await supabase
@@ -70,14 +49,22 @@ serve(async (req) => {
       .single();
 
     if (invError || !invitation) {
-      throw new Error(`Invitation not found: ${invError?.message}`);
+      console.error(`❌ Invitation not found: ${invitation_id}`);
+      return createCorsResponse(
+        {
+          error: 'Invitation not found',
+          details: invError?.message
+        },
+        404,
+        origin
+      );
     }
 
-    // Get hotel name
     const hotelName = invitation.hotels?.name || "SOLARIS PMS";
+    console.log(`✅ Hotel: ${hotelName}`);
 
     // Build invitation URL
-    const invitationUrl = `${Deno.env.get("APP_URL")}/auth?token=${invitation.invitation_token}&type=staff`;
+    const invitationUrl = `${APP_URL}/auth?token=${invitation.invitation_token}&type=staff`;
 
     // Role labels in Spanish
     const roleLabels: Record<string, string> = {
@@ -112,7 +99,7 @@ serve(async (req) => {
             <div class="content">
               <h2>¡Hola ${invitation.full_name}!</h2>
               <p>Has sido invitado/a a unirse al equipo de <strong>${hotelName}</strong> en SOLARIS PMS.</p>
-              
+
               <div class="info-box">
                 <strong>Detalles de la invitación:</strong><br>
                 <strong>Rol:</strong> ${roleLabels[invitation.role] || invitation.role}<br>
@@ -121,7 +108,7 @@ serve(async (req) => {
               </div>
 
               <p>Para aceptar esta invitación y crear tu cuenta, haz clic en el siguiente botón:</p>
-              
+
               <div style="text-align: center;">
                 <a href="${invitationUrl}" class="button">Aceptar Invitación</a>
               </div>
@@ -142,6 +129,8 @@ serve(async (req) => {
       </html>
     `;
 
+    console.log('✅ Email HTML template generated');
+
     // Send email using Resend
     const emailRes = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -160,25 +149,41 @@ serve(async (req) => {
     const emailData = await emailRes.json();
 
     if (!emailRes.ok) {
-      console.error("Resend API error:", emailData);
-      throw new Error(`Failed to send email: ${JSON.stringify(emailData)}`);
+      console.error(`❌ Resend API error: ${JSON.stringify(emailData)}`);
+      return createCorsResponse(
+        {
+          error: 'Failed to send email',
+          details: emailData
+        },
+        500,
+        origin
+      );
     }
 
-    return new Response(
-      JSON.stringify({ success: true, email_sent: true, data: emailData }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      }
+    console.log(`✅ Staff invitation email sent successfully: ${emailData.id}`);
+
+    return createCorsResponse(
+      { success: true, email_sent: true, data: emailData },
+      200,
+      origin
     );
-  } catch (error) {
-    console.error("Error sending staff invitation:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 500,
-      }
+
+  } catch (error: any) {
+    console.error(`❌ Error: ${error.message}`);
+
+    // Zod validation errors
+    if (error.name === 'ZodError') {
+      return createCorsResponse(
+        { error: 'Invalid request data', details: error.errors },
+        400,
+        origin
+      );
+    }
+
+    return createCorsResponse(
+      { error: error.message || 'Internal error' },
+      500,
+      origin
     );
   }
 });

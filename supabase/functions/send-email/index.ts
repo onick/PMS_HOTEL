@@ -1,32 +1,41 @@
+// ===========================================
+// SEND EMAIL VIA RESEND
+// ===========================================
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { handleCorsPrelight, createCorsResponse } from '../_shared/cors.ts';
+import { z } from 'https://deno.land/x/zod@v3.22.4/mod.ts';
 
+// Validate environment variables on startup
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-interface EmailRequest {
-  to: string;
-  subject: string;
-  html: string;
-  from?: string;
+if (!RESEND_API_KEY) {
+  throw new Error('RESEND_API_KEY environment variable is required');
 }
 
+// Validation schema
+const EmailSchema = z.object({
+  to: z.string().email('Invalid recipient email'),
+  subject: z.string().min(1, 'Subject is required').max(200),
+  html: z.string().min(1, 'HTML content is required'),
+  from: z.string().email('Invalid sender email').default('SOLARIS PMS <noreply@solaris-pms.com>'),
+});
+
 serve(async (req) => {
+  const origin = req.headers.get('origin');
+
   // Handle CORS preflight
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+  if (req.method === 'OPTIONS') {
+    return handleCorsPrelight(origin);
   }
 
   try {
-    const { to, subject, html, from = "SOLARIS PMS <noreply@solaris-pms.com>" } = await req.json() as EmailRequest;
+    console.log('📧 Send email request received');
 
-    if (!to || !subject || !html) {
-      throw new Error("Missing required fields: to, subject, html");
-    }
+    // Validate request body
+    const body = await req.json();
+    const { to, subject, html, from } = EmailSchema.parse(body);
+
+    console.log(`✅ Validated email to: ${to}`);
 
     // Send email using Resend
     const res = await fetch("https://api.resend.com/emails", {
@@ -46,22 +55,41 @@ serve(async (req) => {
     const data = await res.json();
 
     if (!res.ok) {
-      console.error("Resend API error:", data);
-      throw new Error(`Failed to send email: ${JSON.stringify(data)}`);
+      console.error(`❌ Resend API error: ${JSON.stringify(data)}`);
+      return createCorsResponse(
+        {
+          error: 'Failed to send email',
+          details: data
+        },
+        500,
+        origin
+      );
     }
 
-    return new Response(JSON.stringify({ success: true, data }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 200,
-    });
-  } catch (error) {
-    console.error("Error sending email:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 500,
-      }
+    console.log(`✅ Email sent successfully: ${data.id}`);
+
+    return createCorsResponse(
+      { success: true, data },
+      200,
+      origin
+    );
+
+  } catch (error: any) {
+    console.error(`❌ Error: ${error.message}`);
+
+    // Zod validation errors
+    if (error.name === 'ZodError') {
+      return createCorsResponse(
+        { error: 'Invalid request data', details: error.errors },
+        400,
+        origin
+      );
+    }
+
+    return createCorsResponse(
+      { error: error.message || 'Internal error' },
+      500,
+      origin
     );
   }
 });

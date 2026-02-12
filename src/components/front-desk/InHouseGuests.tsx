@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { cn } from "@/lib/utils";
 import {
   Hotel,
   User,
@@ -20,6 +21,7 @@ import {
   AlertCircle
 } from "lucide-react";
 import { formatDate } from "@/lib/date-utils";
+import { GuestListItem } from "./common/GuestListItem";
 import {
   Dialog,
   DialogContent,
@@ -31,22 +33,15 @@ import {
 import { toast } from "sonner";
 import FolioDetails from "@/components/billing/FolioDetails";
 
-export default function InHouseGuests() {
+export default function InHouseGuests({ hotelId }: { hotelId: string }) {
   const [selectedGuest, setSelectedGuest] = useState<any>(null);
   const [checkingOut, setCheckingOut] = useState(false);
   const [showFolioDialog, setShowFolioDialog] = useState(false);
 
   const { data: inHouse, refetch } = useQuery({
-    queryKey: ["in-house-guests"],
+    queryKey: ["in-house-guests", hotelId],
+    enabled: !!hotelId,
     queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
-        .single();
-
-      if (!userRoles) return [];
-
       const { data, error } = await supabase
         .from("reservations")
         .select(`
@@ -66,7 +61,7 @@ export default function InHouseGuests() {
             )
           )
         `)
-        .eq("hotel_id", userRoles.hotel_id)
+        .eq("hotel_id", hotelId)
         .eq("status", "CHECKED_IN")
         .order("check_out", { ascending: true });
 
@@ -81,50 +76,47 @@ export default function InHouseGuests() {
   const handleCheckOut = async () => {
     if (!selectedGuest) return;
 
+    // Check if there's an outstanding balance
+    const folio = selectedGuest.folios?.[0];
+    if (folio && folio.balance_cents > 0) {
+      toast.error(`No se puede hacer check-out. El huésped tiene un balance pendiente de ${(folio.balance_cents / 100).toFixed(2)} ${folio.currency}`);
+      return;
+    }
+
     setCheckingOut(true);
     try {
-      // Check if there's an outstanding balance
-      const folio = selectedGuest.folios?.[0];
-      if (folio && folio.balance_cents > 0) {
-        toast.error(`No se puede hacer check-out. El huésped tiene un balance pendiente de ${(folio.balance_cents / 100).toFixed(2)} ${folio.currency}`);
-        return;
+      const { data: { session } } = await supabase.auth.getSession();
+
+      if (!session) {
+        throw new Error("No hay sesión activa");
       }
 
-      // Update reservation status to CHECKED_OUT
-      const { error: resError } = await supabase
-        .from("reservations")
-        .update({
-          status: "CHECKED_OUT",
-          metadata: {
-            ...(selectedGuest.metadata || {}),
-            checked_out_at: new Date().toISOString()
-          }
-        })
-        .eq("id", selectedGuest.id);
-
-      if (resError) {
-        console.error("Error updating reservation:", resError);
-        throw new Error(`Error al actualizar reserva: ${resError.message}${resError.hint ? ` - ${resError.hint}` : ''}`);
-      }
-
-      // Update room status to DIRTY
-      if (selectedGuest.room_id) {
-        const { error: roomError } = await supabase
-          .from("rooms")
-          .update({ status: "DIRTY" })
-          .eq("id", selectedGuest.room_id);
-
-        if (roomError) {
-          console.error("Error updating room:", roomError);
-          throw new Error(`Error al actualizar habitación: ${roomError.message}${roomError.hint ? ` - ${roomError.hint}` : ''}`);
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/check-out`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${session.access_token}`,
+            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+          },
+          body: JSON.stringify({
+            reservationId: selectedGuest.id,
+          }),
         }
+      );
+
+      const responseData = await response.json();
+
+      if (!response.ok) {
+        throw new Error(responseData.error || "Error al realizar check-out");
       }
 
-      toast.success("Check-out realizado exitosamente");
+      toast.success("Check-out realizado exitosamente. Habitación lista para limpieza.");
       setSelectedGuest(null);
       refetch();
     } catch (error: any) {
-      console.error("Check-out error details:", error);
+      console.error("Check-out error:", error);
       toast.error(error.message || "Error al realizar check-out");
     } finally {
       setCheckingOut(false);
@@ -163,42 +155,44 @@ export default function InHouseGuests() {
               const balance = folio ? folio.balance_cents / 100 : 0;
 
               return (
-                <div
+                <GuestListItem
                   key={reservation.id}
-                  className="p-4 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
-                  onClick={() => setSelectedGuest(reservation)}
-                >
-                  <div className="flex items-start justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <User className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium">{reservation.customer.name}</span>
+                  id={reservation.id}
+                  guestName={reservation.customer.name}
+                  roomNumber={roomNumber}
+                  guestsCount={reservation.guests}
+                  roomType={reservation.room_types?.name || "Standard"}
+                  date={formatDate(reservation.check_out)}
+                  status={reservation.status}
+                  type="departure" // Using 'departure' style for in-house as it fits (blue/neutral) or I could add a 'stay' type. Let's stick to existing types or abuse 'arrival'/'departure'. Actually 'departure' style (amber) might not be perfect. 
+                  // Let's check GuestListItem styles. 
+                  // CONFIRMED (arrival) -> Emerald. 
+                  // CHECKED_IN (in-house) -> Blue. 
+                  // The 'type' prop in GuestListItem controls the avatar background:
+                  // type === "arrival" ? "bg-emerald-100..." : "bg-amber-100..."
+                  // I might want to update GuestListItem to support "in-house" or just use one of them.
+                  // Let's use 'arrival' (Emerald) since they are in the hotel (positive). Or maybe I should update GuestListItem to handle 'in-house' better?
+                  // Providing 'arrival' for now to get the green/emerald theme which feels 'active'.
+                  // Wait, check InHouseGuests original UI. It didn't have a strong color coding.
+                  // GuestListItem 'status' prop drives the badge color.
+                  // 'type' drives Avatar color.
+                  // I'll use 'arrival' for now.
+                  onAction={() => setSelectedGuest(reservation)}
+                  actionLabel="Ver detalles"
+                  secondaryAction={
+                    <>
                       {balance > 0 && (
-                        <Badge variant="destructive" className="text-xs">
-                          Balance pendiente
+                        <Badge variant="destructive" className="flex items-center gap-1 mr-2">
+                          <DollarSign className="h-3 w-3" />
+                          Balance
                         </Badge>
                       )}
-                    </div>
-                    <Badge className="bg-front-desk">
-                      Hab. {roomNumber}
-                    </Badge>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
-                    <div>
-                      <p className="font-medium text-foreground">{reservation.room_types?.name}</p>
-                      <p>{reservation.guests} huéspedes</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="flex items-center justify-end gap-1">
-                        <Calendar className="h-3 w-3" />
-                        Salida: {formatDate(reservation.check_out)}
-                      </p>
-                      <p className={nightsRemaining <= 1 ? "text-warning font-medium" : ""}>
-                        {nightsRemaining} {nightsRemaining === 1 ? "noche" : "noches"} restantes
-                      </p>
-                    </div>
-                  </div>
-                </div>
+                      <span className={cn("text-xs font-medium mr-2", nightsRemaining <= 1 ? "text-amber-600" : "text-muted-foreground")}>
+                        {nightsRemaining} {nightsRemaining === 1 ? "noche" : "noches"}
+                      </span>
+                    </>
+                  }
+                />
               );
             })}
           </div>
@@ -306,9 +300,8 @@ export default function InHouseGuests() {
                       <span className="text-sm text-muted-foreground">Balance actual:</span>
                       <div className="flex items-center gap-1">
                         <DollarSign className="h-4 w-4" />
-                        <span className={`font-bold text-lg ${
-                          selectedGuest.folios[0].balance_cents > 0 ? "text-destructive" : "text-success"
-                        }`}>
+                        <span className={`font-bold text-lg ${selectedGuest.folios[0].balance_cents > 0 ? "text-destructive" : "text-success"
+                          }`}>
                           {formatCurrency(
                             selectedGuest.folios[0].balance_cents,
                             selectedGuest.folios[0].currency

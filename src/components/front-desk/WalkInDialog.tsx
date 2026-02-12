@@ -48,6 +48,7 @@ export default function WalkInDialog({ hotelId }: WalkInDialogProps) {
   // Get room types
   const { data: roomTypes } = useQuery({
     queryKey: ["room-types", hotelId],
+    enabled: open,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("room_types")
@@ -63,7 +64,7 @@ export default function WalkInDialog({ hotelId }: WalkInDialogProps) {
   // Get available rooms for selected room type
   const { data: availableRooms } = useQuery({
     queryKey: ["available-rooms", hotelId, formData.roomTypeId],
-    enabled: !!formData.roomTypeId,
+    enabled: open && !!formData.roomTypeId,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("rooms")
@@ -206,7 +207,7 @@ export default function WalkInDialog({ hotelId }: WalkInDialogProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!formData.customerName || !formData.customerEmail) {
       toast.error("Por favor completa nombre y email del huésped");
       return;
@@ -237,8 +238,8 @@ export default function WalkInDialog({ hotelId }: WalkInDialogProps) {
           {/* Guest Information */}
           <div className="space-y-4">
             <h3 className="font-semibold text-sm">Información del Huésped</h3>
-            
-            <div className="grid grid-cols-2 gap-4">
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <Label htmlFor="customerName">Nombre Completo *</Label>
                 <Input

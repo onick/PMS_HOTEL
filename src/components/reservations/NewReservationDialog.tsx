@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Tag, Percent } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, DEMO_MODE } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 import { v4 as uuidv4 } from "uuid";
 
@@ -33,6 +33,7 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
   // Fetch rate plans
   const { data: ratePlans } = useQuery({
     queryKey: ["rate-plans", hotelId],
+    enabled: open,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("rate_plans")
@@ -49,6 +50,7 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
   // Fetch room types for price calculation
   const { data: roomTypes } = useQuery({
     queryKey: ["room-types", hotelId],
+    enabled: open,
     queryFn: async () => {
       const { data, error } = await supabase
         .from("room_types")
@@ -124,10 +126,10 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
       }
 
       // Apply discount
-      const discount = data.discount_type === "percentage" 
-        ? data.discount_value 
+      const discount = data.discount_type === "percentage"
+        ? data.discount_value
         : data.discount_value;
-      
+
       setPromoDiscount(discount);
       setPromoApplied(true);
       toast.success(`¡Código aplicado! ${data.discount_type === "percentage" ? `${discount}% de descuento` : `RD$${discount.toFixed(2)} de descuento`}`);
@@ -160,9 +162,13 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
 
     // Rate plan discount
     const selectedRatePlan = ratePlans?.find(rp => rp.id === formData.ratePlanId);
-    const ratePlanDiscount = selectedRatePlan?.discount_percentage 
-      ? (basePrice * selectedRatePlan.discount_percentage) / 100 
-      : 0;
+    let ratePlanDiscount = 0;
+
+    if (selectedRatePlan) {
+      if (selectedRatePlan.modifier_type === 'percentage') {
+        ratePlanDiscount = (basePrice * selectedRatePlan.modifier_value) / 100;
+      }
+    }
 
     const priceAfterRatePlan = basePrice - ratePlanDiscount;
 
@@ -237,37 +243,48 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
 
       console.log("Creating reservation with data:", requestBody);
 
-      // Get auth session for authorization header
-      const { data: { session } } = await supabase.auth.getSession();
+      let data: any;
 
-      if (!session) {
-        throw new Error("No hay sesión activa");
-      }
+      if (DEMO_MODE) {
+        // In demo mode, use the mock functions.invoke
+        const { data: fnData, error: fnError } = await supabase.functions.invoke(
+          'create-reservation',
+          { body: requestBody }
+        );
+        if (fnError) throw new Error(fnError.message || "Error al crear reserva");
+        data = fnData;
+      } else {
+        // Get auth session for authorization header
+        const { data: { session } } = await supabase.auth.getSession();
 
-      // Make direct fetch to get full error response
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-reservation`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify(requestBody),
+        if (!session) {
+          throw new Error("No hay sesión activa");
         }
-      );
 
-      const responseData = await response.json();
-      console.log("Create reservation response:", { status: response.status, data: responseData });
+        const response = await fetch(
+          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-reservation`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${session.access_token}`,
+              'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
+            },
+            body: JSON.stringify(requestBody),
+          }
+        );
 
-      if (!response.ok) {
-        const errorMessage = responseData.error || "Error al crear reserva";
-        console.error("Function returned error:", errorMessage);
-        throw new Error(errorMessage);
+        const responseData = await response.json();
+        console.log("Create reservation response:", { status: response.status, data: responseData });
+
+        if (!response.ok) {
+          const errorMessage = responseData.error || "Error al crear reserva";
+          console.error("Function returned error:", errorMessage);
+          throw new Error(errorMessage);
+        }
+
+        data = responseData;
       }
-
-      const data = responseData;
 
       toast.success("Reserva creada exitosamente");
       setOpen(false);
@@ -410,7 +427,7 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
               <SelectContent>
                 {ratePlans?.map((plan) => (
                   <SelectItem key={plan.id} value={plan.id}>
-                    {plan.name} {plan.discount_percentage > 0 && `(-${plan.discount_percentage}%)`}
+                    {plan.name} {plan.modifier_type === 'percentage' && `(-${plan.modifier_value}%)`}
                   </SelectItem>
                 ))}
               </SelectContent>

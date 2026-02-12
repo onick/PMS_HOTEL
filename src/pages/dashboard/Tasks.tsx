@@ -572,7 +572,7 @@ export default function Tasks() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-orange-500">{stats.pending}</div>
+            <div className="text-3xl font-bold text-amber-500">{stats.pending}</div>
           </CardContent>
         </Card>
         <Card>
@@ -592,7 +592,7 @@ export default function Tasks() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-green-500">{stats.completed}</div>
+            <div className="text-3xl font-bold text-emerald-500">{stats.completed}</div>
           </CardContent>
         </Card>
       </div>

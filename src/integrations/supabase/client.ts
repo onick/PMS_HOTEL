@@ -5,21 +5,388 @@ import type { Database } from './types';
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
 
-// Validación de variables de entorno
-if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+// ============================================
+// 🎮 MODO DEMO - Bypass temporal de autenticación
+// ============================================
+export const DEMO_MODE = true;
+
+export const DEMO_USER = {
+  id: 'demo-user-123',
+  email: 'demo@hotelmate.test',
+  user_metadata: {
+    full_name: 'Usuario Demo',
+  },
+};
+
+export const DEMO_SESSION = {
+  access_token: 'demo-token',
+  refresh_token: 'demo-refresh',
+  expires_at: Date.now() + 86400000,
+  user: DEMO_USER,
+};
+
+// ============================================
+
+// Validación de variables de entorno (solo en modo normal)
+if (!DEMO_MODE && (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY)) {
   console.error('❌ Error: Variables de entorno de Supabase no configuradas');
   console.error('VITE_SUPABASE_URL:', SUPABASE_URL);
   console.error('VITE_SUPABASE_PUBLISHABLE_KEY:', SUPABASE_PUBLISHABLE_KEY ? '✓ Configurada' : '✗ Falta');
   throw new Error('Supabase configuration is missing. Please check your .env file.');
 }
 
+if (DEMO_MODE) {
+  console.log('🎮 MODO DEMO ACTIVADO - Autenticación deshabilitada');
+}
+
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
-  auth: {
-    storage: localStorage,
-    persistSession: true,
-    autoRefreshToken: true,
+export const supabase = DEMO_MODE 
+  ? createMockSupabaseClient()
+  : createClient<Database>(SUPABASE_URL!, SUPABASE_PUBLISHABLE_KEY!, {
+      auth: {
+        storage: localStorage,
+        persistSession: true,
+        autoRefreshToken: true,
+      }
+    });
+
+// Cliente mock para modo demo
+function createMockSupabaseClient() {
+  return {
+    auth: {
+      getSession: async () => ({ 
+        data: { session: DEMO_SESSION }, 
+        error: null 
+      }),
+      getUser: async () => ({ 
+        data: { user: DEMO_USER }, 
+        error: null 
+      }),
+      signInWithPassword: async () => ({ 
+        data: { user: DEMO_USER, session: DEMO_SESSION }, 
+        error: null 
+      }),
+      signUp: async () => ({ 
+        data: { user: DEMO_USER, session: DEMO_SESSION }, 
+        error: null 
+      }),
+      signOut: async () => ({ error: null }),
+      resetPasswordForEmail: async () => ({ error: null }),
+      onAuthStateChange: (callback: any) => {
+        // Simular login inmediato
+        setTimeout(() => callback('SIGNED_IN', DEMO_SESSION), 100);
+        return { data: { subscription: { unsubscribe: () => {} } } };
+      },
+    },
+    from: (table: string) => createMockTable(table),
+    functions: {
+      invoke: async (fn: string, opts?: any) => createMockFunctionInvoke(fn, opts),
+    },
+    rpc: (fn: string, params?: any) => createMockRpc(fn, params),
+    channel: (name: string) => createMockChannel(name),
+    removeChannel: () => {},
+    removeAllChannels: () => {},
+  } as any;
+}
+
+// Mock de tablas con datos de ejemplo
+function createMockTable(table: string) {
+  const mockData: Record<string, any[]> = {
+    user_roles: [{
+      id: 'ur-1',
+      user_id: 'demo-user-123',
+      hotel_id: 'demo-hotel-1',
+      role: 'HOTEL_OWNER',
+      created_at: '2025-01-15T10:00:00Z',
+    }],
+    hotels: [{
+      id: 'demo-hotel-1',
+      name: 'Hotel Playa Paraíso',
+      address: 'Calle Principal #123',
+      city: 'Pedernales',
+      country: 'República Dominicana',
+      currency: 'DOP',
+      timezone: 'America/Santo_Domingo',
+    }],
+    room_types: [
+      { id: 'rt-1', name: 'Estándar', base_price: 250000, max_occupancy: 2 },
+      { id: 'rt-2', name: 'Deluxe', base_price: 450000, max_occupancy: 3 },
+      { id: 'rt-3', name: 'Suite', base_price: 850000, max_occupancy: 4 },
+    ],
+    rooms: [
+      { id: 'r-1', room_number: '101', status: 'available', room_type_id: 'rt-1' },
+      { id: 'r-2', room_number: '102', status: 'occupied', room_type_id: 'rt-1' },
+      { id: 'r-3', room_number: '201', status: 'available', room_type_id: 'rt-2' },
+      { id: 'r-4', room_number: '301', status: 'maintenance', room_type_id: 'rt-3' },
+    ],
+    guests: [
+      { id: 'g-1', name: 'Juan Pérez', email: 'juan@example.com', phone: '+1 809 555 1001' },
+      { id: 'g-2', name: 'María González', email: 'maria@example.com', phone: '+1 809 555 1002' },
+    ],
+    reservations: [
+      { id: 'res-1', guest_id: 'g-1', status: 'CONFIRMED', check_in: '2026-02-15', check_out: '2026-02-20', total_amount_cents: 1250000 },
+      { id: 'res-2', guest_id: 'g-2', status: 'CHECKED_IN', check_in: '2026-02-10', check_out: '2026-02-14', total_amount_cents: 900000 },
+    ],
+    staff: [
+      { id: 's-1', name: 'Ana Rodríguez', role: 'manager', email: 'ana@hotel.com', status: 'active' },
+      { id: 's-2', name: 'Carlos López', role: 'receptionist', email: 'carlos@hotel.com', status: 'active' },
+    ],
+    tasks: [
+      { id: 't-1', title: 'Limpieza habitación 101', status: 'pending', priority: 'high', assigned_to: 's-2' },
+      { id: 't-2', title: 'Revisar aire acondicionado', status: 'in_progress', priority: 'medium', assigned_to: 's-1' },
+    ],
+    incidents: [
+      { id: 'i-1', title: 'Fuga en baño 205', status: 'open', priority: 'high', category: 'maintenance' },
+    ],
+    rate_plans: [
+      { id: 'rp-1', hotel_id: 'demo-hotel-1', name: 'Rack Rate', description: 'Tarifa estándar', is_active: true, modifier_type: 'none', modifier_value: 0 },
+      { id: 'rp-2', hotel_id: 'demo-hotel-1', name: 'Early Bird', description: '15% descuento reservando 30+ días antes', is_active: true, modifier_type: 'discount', modifier_value: 15 },
+      { id: 'rp-3', hotel_id: 'demo-hotel-1', name: 'Last Minute', description: '10% recargo por reserva de último momento', is_active: true, modifier_type: 'surcharge', modifier_value: 10 },
+    ],
+    revenue_settings: [{
+      hotel_id: 'demo-hotel-1',
+      enable_dynamic_pricing: true,
+      occupancy_weight: 70,
+      competitor_weight: 30,
+      min_price_threshold_percent: 70,
+      max_price_threshold_percent: 150,
+    }],
+    competitor_rates: [
+      { id: 'cr-1', hotel_id: 'demo-hotel-1', competitor_name: 'Hilton Resort', room_category: 'Estándar', price_cents: 28500, date: '2026-02-11', source: 'manual' },
+      { id: 'cr-2', hotel_id: 'demo-hotel-1', competitor_name: 'Marriott Beach', room_category: 'Estándar', price_cents: 31000, date: '2026-02-11', source: 'manual' },
+      { id: 'cr-3', hotel_id: 'demo-hotel-1', competitor_name: 'Hilton Resort', room_category: 'Deluxe', price_cents: 49500, date: '2026-02-11', source: 'manual' },
+    ],
+    inventory_by_day: [],
+    channel_connections: [],
+    notifications: [],
+    permissions: [],
+    role_permissions: [],
+    subscriptions: [],
+    profiles: [{ id: 'demo-user-123', full_name: 'Usuario Demo', phone: '+1 809 555 0100', email: 'demo@hotelmate.test' }],
+    staff_invitations: [],
+  };
+
+  let filtered = [...(mockData[table] || [])];
+
+  function createChain(items: any[]) {
+    const chain: any = {
+      eq: (col: string, val: any) => {
+        items = items.filter(d => d[col] === val);
+        return createChain(items);
+      },
+      neq: (col: string, val: any) => {
+        items = items.filter(d => d[col] !== val);
+        return createChain(items);
+      },
+      in: (col: string, vals: any[]) => {
+        items = items.filter(d => vals.includes(d[col]));
+        return createChain(items);
+      },
+      gte: (col: string, val: any) => {
+        items = items.filter(d => d[col] >= val);
+        return createChain(items);
+      },
+      lte: (col: string, val: any) => {
+        items = items.filter(d => d[col] <= val);
+        return createChain(items);
+      },
+      gt: (col: string, val: any) => {
+        items = items.filter(d => d[col] > val);
+        return createChain(items);
+      },
+      lt: (col: string, val: any) => {
+        items = items.filter(d => d[col] < val);
+        return createChain(items);
+      },
+      order: (col: string, opts?: { ascending?: boolean }) => {
+        const asc = opts?.ascending !== false;
+        items = [...items].sort((a, b) => {
+          if (a[col] < b[col]) return asc ? -1 : 1;
+          if (a[col] > b[col]) return asc ? 1 : -1;
+          return 0;
+        });
+        return createChain(items);
+      },
+      limit: (n: number) => {
+        items = items.slice(0, n);
+        return createChain(items);
+      },
+      range: (from: number, to: number) => {
+        items = items.slice(from, to + 1);
+        return createChain(items);
+      },
+      or: (_filter: string) => {
+        // In demo mode, just return all items (or is complex to parse)
+        return createChain(items);
+      },
+      ilike: (col: string, val: string) => {
+        const pattern = val.replace(/%/g, '').toLowerCase();
+        items = items.filter(d => String(d[col] || '').toLowerCase().includes(pattern));
+        return createChain(items);
+      },
+      is: (col: string, val: any) => {
+        items = items.filter(d => d[col] === val);
+        return createChain(items);
+      },
+      not: (col: string, op: string, val: any) => {
+        return createChain(items);
+      },
+      single: async () => ({ data: items[0] || null, error: items[0] ? null : null }),
+      maybeSingle: async () => ({ data: items[0] || null, error: null }),
+      then: async (resolve: any) => resolve({ data: items, error: null }),
+    };
+
+    // Make chain thenable so `await query` works
+    chain[Symbol.toStringTag] = 'Promise';
+    chain.then = (resolve: any, reject?: any) => Promise.resolve({ data: items, error: null, count: items.length }).then(resolve, reject);
+    chain.catch = (reject: any) => Promise.resolve({ data: items, error: null }).catch(reject);
+
+    return chain;
   }
-});
+
+  return {
+    select: (columns = '*', opts?: { count?: string; head?: boolean }) => {
+      if (opts?.head) {
+        return {
+          ...createChain(filtered),
+          then: (resolve: any, reject?: any) => Promise.resolve({ data: null, error: null, count: filtered.length }).then(resolve, reject),
+          eq: (col: string, val: any) => {
+            const f = filtered.filter(d => d[col] === val);
+            const headChain: any = createChain(f);
+            headChain.then = (resolve: any, reject?: any) => Promise.resolve({ data: null, error: null, count: f.length }).then(resolve, reject);
+            headChain.eq = (col2: string, val2: any) => {
+              const f2 = f.filter(d => d[col2] === val2);
+              const hc2: any = createChain(f2);
+              hc2.then = (resolve: any, rej?: any) => Promise.resolve({ data: null, error: null, count: f2.length }).then(resolve, rej);
+              return hc2;
+            };
+            return headChain;
+          },
+        };
+      }
+      return createChain(filtered);
+    },
+    insert: (vals: any) => createChain([{ ...vals, id: 'new-' + Date.now() }]),
+    upsert: (vals: any) => createChain([vals]),
+    update: (vals: any) => ({
+      eq: (col: string, val: any) => createChain([{ ...vals, [col]: val }]),
+      match: (criteria: any) => createChain([{ ...vals, ...criteria }]),
+    }),
+    delete: () => ({
+      eq: (col: string, val: any) => createChain([]),
+    }),
+  };
+}
+
+// Mock de canales Realtime
+function createMockChannel(name: string) {
+  return {
+    on: (event: string, config: any, callback?: any) => createMockChannel(name),
+    subscribe: (callback?: any) => {
+      // Simular suscripción exitosa
+      if (callback) callback('SUBSCRIBED', {});
+      return createMockChannel(name);
+    },
+    unsubscribe: () => {},
+  };
+}
+
+// Mock de funciones RPC
+function createMockRpc(fn: string, params?: any) {
+  const mockResults: Record<string, any> = {
+    get_dashboard_metrics: {
+      total_rooms: 18,
+      occupied_rooms: 12,
+      available_rooms: 6,
+      occupancy_rate: 66.7,
+      today_checkins: 3,
+      today_checkouts: 2,
+      monthly_revenue: 12500000,
+      pending_tasks: 5,
+    },
+    calculate_revenue: { total_revenue: 12500000, total_reservations: 45 },
+    get_available_rooms: [
+      { id: 'r-1', room_number: '101', room_type: 'Estándar', price: 250000 },
+      { id: 'r-3', room_number: '201', room_type: 'Deluxe', price: 450000 },
+    ],
+  };
+
+  return { data: mockResults[fn] || null, error: null };
+}
+
+// Mock de Edge Functions (supabase.functions.invoke)
+function createMockFunctionInvoke(fn: string, opts?: any) {
+  const body = opts?.body;
+
+  const handlers: Record<string, () => any> = {
+    'create-reservation': () => ({
+      data: {
+        reservation: {
+          id: 'res-' + Date.now(),
+          hotel_id: body?.hotelId || 'demo-hotel-1',
+          room_type_id: body?.roomTypeId,
+          check_in: body?.checkIn,
+          check_out: body?.checkOut,
+          guests: body?.guests || 1,
+          status: 'CONFIRMED',
+          total_amount_cents: 500000,
+          customer: body?.customer,
+          created_at: new Date().toISOString(),
+        },
+      },
+      error: null,
+    }),
+    'check-in': () => ({ data: { success: true }, error: null }),
+    'check-out': () => ({ data: { success: true }, error: null }),
+    'ensure-subscription': () => ({
+      data: { subscribed: true, plan: 'professional', status: 'active' },
+      error: null,
+    }),
+    'create-payment-intent': () => ({
+      data: { clientSecret: 'demo_secret_123', paymentIntentId: 'pi_demo_123' },
+      error: null,
+    }),
+    'confirm-reservation-payment': () => ({ data: { success: true }, error: null }),
+    'send-reservation-confirmation': () => ({ data: { sent: true }, error: null }),
+    'send-email': () => ({ data: { sent: true }, error: null }),
+    'send-staff-invitation': () => ({ data: { sent: true }, error: null }),
+    'get-payment-history': () => ({ data: [], error: null }),
+    'get-payment-method': () => ({ data: null, error: null }),
+    'create-subscription-checkout': () => ({ data: { url: '#demo-checkout' }, error: null }),
+    'create-customer-portal': () => ({ data: { url: '#demo-portal' }, error: null }),
+    'create-refund': () => ({ data: { success: true }, error: null }),
+    'reset-subscription': () => ({ data: { success: true }, error: null }),
+  };
+
+  const handler = handlers[fn];
+  if (handler) {
+    console.log(`🎮 Demo: Edge function "${fn}" intercepted`);
+    return handler();
+  }
+
+  console.warn(`🎮 Demo: Edge function "${fn}" not mocked`);
+  return { data: null, error: null };
+}
+
+// Intercept raw fetch() calls to edge functions in demo mode
+if (DEMO_MODE) {
+  const originalFetch = window.fetch;
+  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+    const fnMatch = url.match(/\/functions\/v1\/(.+?)(?:\?|$)/);
+    if (fnMatch) {
+      const fnName = fnMatch[1];
+      let body = {};
+      try { body = init?.body ? JSON.parse(init.body as string) : {}; } catch {}
+      console.log(`🎮 Demo: Intercepted fetch to "${fnName}"`);
+      const result = createMockFunctionInvoke(fnName, { body });
+      return new Response(JSON.stringify(result.data || {}), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return originalFetch(input, init);
+  };
+}

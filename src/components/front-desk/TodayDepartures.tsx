@@ -15,23 +15,17 @@ import {
   DialogFooter,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { GuestListItem } from "./common/GuestListItem";
 
-export default function TodayDepartures() {
+export default function TodayDepartures({ hotelId }: { hotelId: string }) {
   const [selectedReservation, setSelectedReservation] = useState<any>(null);
 
   const today = new Date().toISOString().split("T")[0];
 
   const { data: departures, refetch } = useQuery({
-    queryKey: ["today-departures"],
+    queryKey: ["today-departures", hotelId],
+    enabled: !!hotelId,
     queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
-        .single();
-
-      if (!userRoles) return [];
-
       const { data, error } = await supabase
         .from("reservations")
         .select(`
@@ -39,7 +33,7 @@ export default function TodayDepartures() {
           room_types (name),
           folios (balance_cents)
         `)
-        .eq("hotel_id", userRoles.hotel_id)
+        .eq("hotel_id", hotelId)
         .eq("check_out", today)
         .eq("status", "CHECKED_IN")
         .order("created_at", { ascending: true });
@@ -117,36 +111,25 @@ export default function TodayDepartures() {
                 const hasBalance = balance > 0;
 
                 return (
-                  <div
+                  <GuestListItem
                     key={reservation.id}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <User className="h-4 w-4 text-muted-foreground" />
-                        <span className="font-medium">
-                          {reservation.customer.name}
-                        </span>
-                        {hasBalance && (
-                          <Badge variant="destructive" className="flex items-center gap-1">
-                            <DollarSign className="h-3 w-3" />
-                            Balance pendiente
-                          </Badge>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <span>Hab. {reservation.metadata?.room_number || "N/A"}</span>
-                        <span>{reservation.room_types?.name}</span>
-                        <span>{reservation.guests} huéspedes</span>
-                      </div>
-                    </div>
-                    <Button
-                      onClick={() => setSelectedReservation(reservation)}
-                      className="bg-front-desk hover:bg-front-desk/90"
-                    >
-                      Check-out
-                    </Button>
-                  </div>
+                    id={reservation.id}
+                    guestName={reservation.customer.name}
+                    roomNumber={reservation.metadata?.room_number}
+                    guestsCount={reservation.guests}
+                    roomType={reservation.room_types?.name || "Standard"}
+                    date={formatDate(reservation.check_out)}
+                    status={reservation.status}
+                    type="departure"
+                    onAction={() => setSelectedReservation(reservation)}
+                    actionLabel="Check-out"
+                    secondaryAction={hasBalance && (
+                      <Badge variant="destructive" className="flex items-center gap-1">
+                        <DollarSign className="h-3 w-3" />
+                        Balance pendiente
+                      </Badge>
+                    )}
+                  />
                 );
               })}
             </div>
@@ -162,14 +145,14 @@ export default function TodayDepartures() {
               Confirma la salida del huésped
             </DialogDescription>
           </DialogHeader>
-          
+
           {selectedReservation && (
             <div className="space-y-4">
               <div>
                 <p className="text-sm font-medium mb-1">Huésped</p>
                 <p className="text-lg">{selectedReservation.customer.name}</p>
               </div>
-              
+
               <div>
                 <p className="text-sm font-medium mb-1">Habitación</p>
                 <p>{selectedReservation.metadata?.room_number || "N/A"}</p>
@@ -178,7 +161,7 @@ export default function TodayDepartures() {
               <div>
                 <p className="text-sm font-medium mb-1">Balance</p>
                 <p className={selectedReservation.folios?.[0]?.balance_cents > 0 ? "text-destructive font-semibold" : "text-success"}>
-                  {selectedReservation.folios?.[0]?.balance_cents > 0 
+                  {selectedReservation.folios?.[0]?.balance_cents > 0
                     ? `Pendiente: $${(selectedReservation.folios[0].balance_cents / 100).toFixed(2)}`
                     : "Cuenta saldada"
                   }

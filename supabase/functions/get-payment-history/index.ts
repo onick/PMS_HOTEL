@@ -1,50 +1,94 @@
+// ===========================================
+// GET PAYMENT HISTORY (STRIPE INVOICES)
+// ===========================================
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { handleCorsPrelight, createCorsResponse } from '../_shared/cors.ts';
+import { z } from 'https://deno.land/x/zod@v3.22.4/mod.ts';
 import Stripe from "https://esm.sh/stripe@14.21.0";
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") as string, {
+// Validate environment variables on startup
+const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
+const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
+
+if (!STRIPE_SECRET_KEY || !SUPABASE_URL || !SUPABASE_ANON_KEY) {
+  throw new Error('Missing required environment variables');
+}
+
+const stripe = new Stripe(STRIPE_SECRET_KEY, {
   apiVersion: "2023-10-16",
 });
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+// Validation schema
+const GetPaymentHistorySchema = z.object({
+  hotelId: z.string().uuid('Invalid hotel ID'),
+});
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+  const origin = req.headers.get('origin');
+
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return handleCorsPrelight(origin);
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_ANON_KEY") ?? "",
-      {
-        global: {
-          headers: { Authorization: req.headers.get("Authorization")! },
-        },
-      }
-    );
+    console.log('📜 Get payment history request received');
 
-    const { hotelId } = await req.json();
-
-    // Verify user has access to this hotel
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      throw new Error("No autenticado");
+    // Create authenticated Supabase client
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return createCorsResponse(
+        { error: 'Missing authorization header' },
+        401,
+        origin
+      );
     }
 
-    const { data: userRole } = await supabase
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+      global: {
+        headers: { Authorization: authHeader },
+      },
+    });
+
+    // Validate request body
+    const body = await req.json();
+    const { hotelId } = GetPaymentHistorySchema.parse(body);
+
+    console.log(`✅ Validated hotel ID: ${hotelId}`);
+
+    // Verify user authentication
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      console.error('❌ User not authenticated');
+      return createCorsResponse(
+        { error: 'Not authenticated' },
+        401,
+        origin
+      );
+    }
+
+    console.log(`✅ User authenticated: ${user.id}`);
+
+    // Verify user has access to this hotel
+    const { data: userRole, error: roleError } = await supabase
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id)
       .eq("hotel_id", hotelId)
       .single();
 
-    if (!userRole) {
-      throw new Error("No tienes acceso a este hotel");
+    if (roleError || !userRole) {
+      console.warn(`⚠️ User ${user.id} has no access to hotel ${hotelId}`);
+      return createCorsResponse(
+        { error: 'You do not have access to this hotel' },
+        403,
+        origin
+      );
     }
+
+    console.log(`✅ User has role: ${userRole.role}`);
 
     // Get subscription
     const { data: subscription } = await supabase
@@ -54,30 +98,46 @@ serve(async (req) => {
       .single();
 
     if (!subscription?.stripe_customer_id) {
-      return new Response(
-        JSON.stringify({ invoices: [] }),
-        { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      console.log('ℹ️ No Stripe customer found, returning empty invoices');
+      return createCorsResponse(
+        { invoices: [] },
+        200,
+        origin
       );
     }
 
-    // Get invoices from Stripe
+    console.log(`✅ Found Stripe customer: ${subscription.stripe_customer_id}`);
+
+    // Fetch invoices from Stripe
     const invoices = await stripe.invoices.list({
       customer: subscription.stripe_customer_id,
       limit: 10,
     });
 
-    return new Response(
-      JSON.stringify({ invoices: invoices.data }),
-      { headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    console.log(`✅ Retrieved ${invoices.data.length} invoices`);
+
+    return createCorsResponse(
+      { invoices: invoices.data },
+      200,
+      origin
     );
+
   } catch (error: any) {
-    console.error("Error fetching payment history:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      { 
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" }
-      }
+    console.error(`❌ Error: ${error.message}`);
+
+    // Zod validation errors
+    if (error.name === 'ZodError') {
+      return createCorsResponse(
+        { error: 'Invalid request data', details: error.errors },
+        400,
+        origin
+      );
+    }
+
+    return createCorsResponse(
+      { error: error.message || 'Internal error' },
+      500,
+      origin
     );
   }
 });

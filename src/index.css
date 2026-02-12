@@ -8,7 +8,7 @@ All colors MUST be HSL.
 
 @layer base {
   :root {
-    /* SOLARIS PMS - Light Mode */
+    /* HotelMate PMS - Light Mode */
     /* Primary - Turquesa profundo #007B83 */
     --primary: 183 100% 26%;
     --primary-hover: 183 100% 32%;
@@ -53,8 +53,13 @@ All colors MUST be HSL.
     --housekeeping: 159 58% 60%;
     --billing: 43 100% 73%;
     --channel-manager: 23 100% 67%;
+    --revenue: 34 100% 50%;
     --crm: 255 18% 68%;
     --analytics: 194 30% 26%;
+    --tasks: 270 60% 55%;
+    --staff: 210 70% 50%;
+    --inventory: 28 80% 52%;
+    --reports: 160 60% 40%;
     
     /* Gradients */
     --gradient-ocean: linear-gradient(135deg, hsl(183 100% 26%) 0%, hsl(183 100% 36%) 100%);
@@ -82,7 +87,7 @@ All colors MUST be HSL.
   }
 
   .dark {
-    /* SOLARIS PMS - Dark Mode */
+    /* HotelMate PMS - Dark Mode */
     /* Primary - Turquesa claro #00B0B9 */
     --primary: 183 100% 36%;
     --primary-hover: 183 100% 42%;
@@ -127,8 +132,13 @@ All colors MUST be HSL.
     --housekeeping: 159 58% 60%;
     --billing: 43 100% 73%;
     --channel-manager: 18 100% 71%;
+    --revenue: 34 100% 55%;
     --crm: 255 18% 68%;
     --analytics: 194 30% 35%;
+    --tasks: 270 60% 62%;
+    --staff: 210 70% 55%;
+    --inventory: 28 80% 58%;
+    --reports: 160 60% 48%;
     
     /* Gradients */
     --gradient-ocean: linear-gradient(135deg, hsl(183 100% 26%) 0%, hsl(183 100% 36%) 100%);
@@ -215,8 +225,13 @@ All colors MUST be HSL.
   .table-mobile-scroll {
     @apply overflow-x-auto -mx-4 sm:mx-0;
   }
-  
+
   .table-mobile-scroll table {
     @apply min-w-full;
+  }
+
+  /* Safe area for iOS home bar */
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom, 0px);
   }
 }

@@ -1,32 +1,51 @@
+// ===========================================
+// CHECK-IN GUEST TO ROOM
+// ===========================================
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { handleCorsPrelight, createCorsResponse } from '../_shared/cors.ts';
+import { getSupabaseServiceClient } from '../_shared/supabase.ts';
+import { z } from 'https://deno.land/x/zod@v3.22.4/mod.ts';
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+// Validation schema
+const CheckInSchema = z.object({
+  reservationId: z.string().uuid('Invalid reservation ID'),
+  roomId: z.string().uuid('Invalid room ID'),
+  notes: z.string().optional(),
+});
 
-interface CheckInInput {
-  reservationId: string;
-  roomId: string; // Habitación física específica a asignar
-  notes?: string;
+// Validate request helper
+function validateRequest<T>(schema: z.ZodSchema<T>, data: unknown): T {
+  try {
+    return schema.parse(data);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const messages = error.errors.map(e => `${e.path.join('.')}: ${e.message}`);
+      throw new Error(`Validation failed: ${messages.join(', ')}`);
+    }
+    throw error;
+  }
 }
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+  const origin = req.headers.get('origin');
+
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return handleCorsPrelight(origin);
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
+    console.log('🔑 Check-in request received');
 
-    const input: CheckInInput = await req.json();
-    console.log("Processing check-in:", input);
+    // Validate request body
+    const body = await req.json();
+    const input = validateRequest(CheckInSchema, body);
 
-    // ===== (1) VALIDAR RESERVA =====
+    console.log(`✅ Validated check-in for reservation: ${input.reservationId}`);
+
+    const supabase = getSupabaseServiceClient();
+
+    // ===== (1) VALIDATE RESERVATION =====
     const { data: reservation, error: resError } = await supabase
       .from("reservations")
       .select("*, room_types(name)")
@@ -34,19 +53,44 @@ serve(async (req) => {
       .single();
 
     if (resError || !reservation) {
-      throw new Error("ReservationNotFound");
+      console.error(`❌ Reservation not found: ${input.reservationId}`);
+      return createCorsResponse(
+        { error: 'Reservation not found' },
+        404,
+        origin
+      );
     }
 
+    // Validate reservation status
     if (reservation.status !== "CONFIRMED") {
-      throw new Error(`InvalidStatus: Reservation must be CONFIRMED, current: ${reservation.status}`);
+      console.warn(`⚠️ Invalid status: ${reservation.status}, expected CONFIRMED`);
+      return createCorsResponse(
+        {
+          error: 'Invalid reservation status',
+          details: `Reservation must be CONFIRMED, current: ${reservation.status}`
+        },
+        409, // Conflict
+        origin
+      );
     }
 
+    // Validate check-in date
     const today = new Date().toISOString().split("T")[0];
     if (reservation.check_in !== today) {
-      throw new Error(`InvalidCheckInDate: Expected ${today}, reservation: ${reservation.check_in}`);
+      console.warn(`⚠️ Check-in date mismatch: today=${today}, reservation=${reservation.check_in}`);
+      return createCorsResponse(
+        {
+          error: 'Invalid check-in date',
+          details: `Expected ${today}, reservation check-in: ${reservation.check_in}`
+        },
+        400,
+        origin
+      );
     }
 
-    // ===== (2) VALIDAR HABITACIÓN =====
+    console.log(`📅 Check-in date validated: ${today}`);
+
+    // ===== (2) VALIDATE ROOM =====
     const { data: room, error: roomError } = await supabase
       .from("rooms")
       .select("*")
@@ -56,15 +100,30 @@ serve(async (req) => {
       .single();
 
     if (roomError || !room) {
-      throw new Error("RoomNotFound or RoomTypeMismatch");
+      console.error(`❌ Room not found or type mismatch: ${input.roomId}`);
+      return createCorsResponse(
+        { error: 'Room not found or room type mismatch' },
+        404,
+        origin
+      );
     }
 
     if (room.status !== "AVAILABLE") {
-      throw new Error(`RoomNotAvailable: ${room.status}`);
+      console.warn(`⚠️ Room not available: ${room.status}`);
+      return createCorsResponse(
+        {
+          error: 'Room not available',
+          details: `Room status: ${room.status}`
+        },
+        409, // Conflict
+        origin
+      );
     }
 
-    // ===== (3) EJECUTAR CHECK-IN =====
-    // Actualizar estado de reserva
+    console.log(`✅ Room validated: ${room.room_number} (${room.status})`);
+
+    // ===== (3) EXECUTE CHECK-IN =====
+    // Update reservation status
     const { error: updateResError } = await supabase
       .from("reservations")
       .update({
@@ -80,20 +139,40 @@ serve(async (req) => {
       .eq("id", input.reservationId);
 
     if (updateResError) {
-      throw new Error(`UpdateReservationError: ${updateResError.message}`);
+      console.error(`❌ Reservation update error: ${updateResError.message}`);
+      return createCorsResponse(
+        {
+          error: 'Failed to update reservation',
+          details: updateResError.message
+        },
+        500,
+        origin
+      );
     }
 
-    // Actualizar estado de habitación a OCCUPIED
+    console.log('✅ Reservation updated to CHECKED_IN');
+
+    // Update room status to OCCUPIED
     const { error: updateRoomError } = await supabase
       .from("rooms")
       .update({ status: "OCCUPIED" })
       .eq("id", input.roomId);
 
     if (updateRoomError) {
-      throw new Error(`UpdateRoomError: ${updateRoomError.message}`);
+      console.error(`❌ Room update error: ${updateRoomError.message}`);
+      return createCorsResponse(
+        {
+          error: 'Failed to update room status',
+          details: updateRoomError.message
+        },
+        500,
+        origin
+      );
     }
 
-    // Crear room_lock (asignación física)
+    console.log('✅ Room updated to OCCUPIED');
+
+    // Create room lock (physical room assignment)
     const { error: lockError } = await supabase
       .from("room_locks")
       .insert({
@@ -104,31 +183,34 @@ serve(async (req) => {
       });
 
     if (lockError) {
-      console.warn("RoomLockError (non-critical):", lockError.message);
+      console.warn(`⚠️ Room lock creation warning (non-critical): ${lockError.message}`);
+    } else {
+      console.log('✅ Room lock created');
     }
 
-    console.log("Check-in completed successfully");
+    console.log('✅ Check-in completed successfully');
 
-    return new Response(
-      JSON.stringify({
+    return createCorsResponse(
+      {
         success: true,
         reservationId: input.reservationId,
         roomNumber: room.room_number,
         status: "CHECKED_IN",
-      }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      }
+      },
+      200,
+      origin
     );
+
   } catch (error: any) {
-    console.error("Error during check-in:", error);
-    return new Response(
-      JSON.stringify({ error: error.message || "InternalError" }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 400,
-      }
+    console.error(`❌ Error: ${error.message}`);
+
+    // Validation errors return 400, others return 500
+    const status = error.message.includes('Validation failed') ? 400 : 500;
+
+    return createCorsResponse(
+      { error: error.message || 'Internal error' },
+      status,
+      origin
     );
   }
 });

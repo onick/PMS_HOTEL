@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, DEMO_MODE, DEMO_USER } from "@/integrations/supabase/client";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Waves } from "lucide-react";
+import { Waves, Zap } from "lucide-react";
 
 const Auth = () => {
   const navigate = useNavigate();
@@ -30,6 +30,21 @@ const Auth = () => {
     if (session) {
       navigate("/dashboard");
     }
+  };
+
+  // 🎮 Acceso rápido en modo demo
+  const handleDemoLogin = async () => {
+    setLoading(true);
+    toast.success("🎮 Modo Demo - Accediendo sin autenticación");
+    
+    // Guardar sesión demo en localStorage
+    localStorage.setItem('demo_session', JSON.stringify({
+      user: DEMO_USER,
+      timestamp: Date.now(),
+    }));
+    
+    navigate("/dashboard");
+    setLoading(false);
   };
 
   const handleSignUp = async (e: React.FormEvent) => {
@@ -115,7 +130,26 @@ const Auth = () => {
             <TabsContent value="signin">
               {!showResetForm ? (
                 <form onSubmit={handleSignIn} className="space-y-4">
-                  {isDevelopment && (
+                  {DEMO_MODE && (
+                    <div className="bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-md p-4 text-sm">
+                      <p className="font-semibold text-purple-800 mb-1 flex items-center gap-2">
+                        <Zap className="h-4 w-4" />
+                        🎮 Modo Demo Activado
+                      </p>
+                      <p className="text-purple-700 text-xs mb-3">
+                        Accede instantáneamente sin necesidad de crear cuenta
+                      </p>
+                      <Button
+                        type="button"
+                        onClick={handleDemoLogin}
+                        className="w-full bg-gradient-to-r from-purple-500 to-pink-500 hover:opacity-90 text-white"
+                        disabled={loading}
+                      >
+                        {loading ? "Cargando..." : "Entrar en Modo Demo"}
+                      </Button>
+                    </div>
+                  )}
+                  {isDevelopment && !DEMO_MODE && (
                     <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 text-sm">
                       <p className="font-semibold text-yellow-800 mb-1">🔧 Modo Desarrollo</p>
                       <p className="text-yellow-700 text-xs">
@@ -123,6 +157,17 @@ const Auth = () => {
                       </p>
                     </div>
                   )}
+                  
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t" />
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-background px-2 text-muted-foreground">
+                        O usa email y contraseña
+                      </span>
+                    </div>
+                  </div>
                   <div className="space-y-2">
                     <Label htmlFor="email-signin">Email</Label>
                     <Input

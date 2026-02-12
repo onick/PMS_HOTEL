@@ -69,8 +69,13 @@ export default {
         housekeeping: "hsl(var(--housekeeping))",
         billing: "hsl(var(--billing))",
         'channel-manager': "hsl(var(--channel-manager))",
+        revenue: "hsl(var(--revenue))",
         crm: "hsl(var(--crm))",
         analytics: "hsl(var(--analytics))",
+        tasks: "hsl(var(--tasks))",
+        staff: "hsl(var(--staff))",
+        inventory: "hsl(var(--inventory))",
+        reports: "hsl(var(--reports))",
       },
       backgroundImage: {
         'gradient-ocean': 'var(--gradient-ocean)',

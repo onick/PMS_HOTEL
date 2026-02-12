@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { supabase, DEMO_MODE, DEMO_USER } from "@/integrations/supabase/client";
 import { useNavigate, Outlet } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -18,10 +18,35 @@ import { Button } from "@/components/ui/button";
 import { User, Moon, Sun, LogOut } from "lucide-react";
 import { useTheme } from "next-themes";
 import { toast } from "sonner";
+import { useModuleContext } from "@/hooks/useModuleContext";
+import { MobileBottomNav } from "@/components/MobileBottomNav";
+import { useIsMobile } from "@/hooks/use-mobile";
+import { cn } from "@/lib/utils";
+
+// 🎮 Datos demo para el hotel
+const DEMO_HOTEL = {
+  id: 'demo-hotel-1',
+  name: 'Hotel Playa Paraíso',
+  address: 'Calle Principal #123',
+  city: 'Pedernales',
+  state: 'Pedernales',
+  country: 'República Dominicana',
+  postal_code: '18004',
+  phone: '+1 (809) 555-0100',
+  email: 'info@playaparaiso.do',
+  website: 'https://playaparaiso.do',
+  currency: 'DOP',
+  timezone: 'America/Santo_Domingo',
+  tax_rate: 18.00,
+  check_in_time: '15:00:00',
+  check_out_time: '12:00:00',
+};
 
 const Dashboard = () => {
   const navigate = useNavigate();
   const { theme, setTheme } = useTheme();
+  const activeModule = useModuleContext();
+  const isMobile = useIsMobile();
   const [user, setUser] = useState<any>(null);
   const [hotel, setHotel] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -39,6 +64,14 @@ const Dashboard = () => {
     }
 
     setUser(session.user);
+
+    // 🎮 Modo Demo: Usar datos mock directamente
+    if (DEMO_MODE) {
+      console.log("🎮 Modo Demo - Cargando datos de ejemplo");
+      setHotel(DEMO_HOTEL);
+      setLoading(false);
+      return;
+    }
 
     // Primero obtenemos el rol del usuario
     const { data: userRole, error: roleError } = await supabase
@@ -108,24 +141,34 @@ const Dashboard = () => {
   }
 
   return (
-    <SidebarProvider defaultOpen={false}>
+    <SidebarProvider defaultOpen={true}>
       <div className="flex min-h-screen w-full bg-background">
         <AppSidebar />
-        
+
         <div className="flex-1 flex flex-col min-w-0">
-          {/* Header - Responsive */}
-          <header className="h-14 md:h-16 border-b bg-card/80 backdrop-blur-sm sticky top-0 z-10 shadow-soft">
-            <div className="h-full px-3 md:px-6 flex items-center gap-2 md:gap-4">
-              <SidebarTrigger className="text-muted-foreground hover:text-foreground" />
-              
-              {/* Hotel Info - Hidden on mobile, condensed on tablet */}
-              <div className="flex-1 min-w-0 hidden sm:block">
-                <h1 className="text-base md:text-xl font-semibold text-foreground truncate">
-                  {hotel.name}
-                </h1>
-                <p className="text-xs md:text-sm text-muted-foreground truncate hidden md:block">
-                  {hotel.city}, {hotel.country}
-                </p>
+          {/* Header */}
+          <header className="h-14 md:h-16 border-b border-border/60 bg-card/90 backdrop-blur-sm sticky top-0 z-10">
+            <div className="h-full px-3 md:px-6 flex items-center gap-3 md:gap-4">
+              <SidebarTrigger className="text-muted-foreground hover:text-foreground transition-colors" />
+
+              {/* Divider */}
+              <div className="h-5 w-px bg-border/60 hidden sm:block" />
+
+              {/* Module Badge + Hotel Info */}
+              <div className="flex-1 min-w-0 flex items-center gap-3">
+                {/* Contextual Module Badge */}
+                <div className="flex items-center gap-2">
+                  <span className={`h-2 w-2 rounded-full ${activeModule.dotClass}`} />
+                  <span className={`text-sm font-medium ${activeModule.colorClass} hidden sm:inline`}>
+                    {activeModule.label}
+                  </span>
+                </div>
+
+                {/* Hotel name - desktop only */}
+                <div className="hidden lg:flex items-center gap-2 text-muted-foreground">
+                  <span className="text-border">|</span>
+                  <span className="text-sm truncate">{hotel.name}</span>
+                </div>
               </div>
               
               {/* Mobile: Show only icons */}
@@ -182,10 +225,13 @@ const Dashboard = () => {
           </header>
 
           {/* Main Content - Responsive padding */}
-          <main className="flex-1 p-3 md:p-6">
+          <main className={cn("flex-1 p-3 md:p-6", isMobile && "pb-20")}>
             <Outlet context={{ hotel }} />
           </main>
         </div>
+
+        {/* Mobile Bottom Navigation */}
+        {isMobile && <MobileBottomNav />}
       </div>
     </SidebarProvider>
   );

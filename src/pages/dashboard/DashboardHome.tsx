@@ -13,7 +13,8 @@ import {
   Percent,
   Star,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  LayoutGrid
 } from "lucide-react";
 import { formatDate } from "@/lib/date-utils";
 import { format } from "date-fns";
@@ -36,6 +37,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { Plus } from "lucide-react";
+import { StatCard } from "@/components/dashboard/StatCard";
 
 interface DashboardMetrics {
   totalReservations: number;
@@ -50,6 +52,13 @@ interface DashboardMetrics {
   checkOutsToday: number;
   revenueChange: number;
   occupancyChange: number;
+}
+
+interface OptimalRateData {
+  optimal_price_cents: number;
+  difference_cents: number;
+  opportunities: number;
+  occupancy_percent: number;
 }
 
 export default function DashboardHome() {
@@ -261,7 +270,7 @@ export default function DashboardHome() {
         return null;
       }
 
-      return data;
+      return data as unknown as OptimalRateData;
     },
   });
 
@@ -355,107 +364,58 @@ export default function DashboardHome() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-3xl font-bold mb-2">Panel de Control</h1>
-        <p className="text-sm text-muted-foreground">
-          Resumen general de las operaciones del hotel - {formatDate(new Date().toISOString())}
-        </p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold mb-2">Panel de Control</h1>
+          <p className="text-sm text-muted-foreground">
+            Resumen general de las operaciones del hotel - {formatDate(new Date().toISOString())}
+          </p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => navigate("/dashboard")}
+          className="gap-2"
+        >
+          <LayoutGrid className="h-4 w-4" />
+          Vista Alternativa
+        </Button>
       </div>
 
       {/* KPIs principales */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {/* Ocupación */}
-        <Card className="hover-scale border-primary/20">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ocupación</CardTitle>
-            <Percent className="h-4 w-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-primary">
-              {metrics.occupancyRate.toFixed(1)}%
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {metrics.occupiedToday} de {metrics.totalRooms} habitaciones
-            </p>
-            <div className="flex items-center mt-2 text-xs">
-              {metrics.occupancyChange >= 0 ? (
-                <TrendingUp className="h-3 w-3 text-success mr-1" />
-              ) : (
-                <TrendingDown className="h-3 w-3 text-destructive mr-1" />
-              )}
-              <span className={metrics.occupancyChange >= 0 ? "text-success" : "text-destructive"}>
-                {metrics.occupancyChange >= 0 ? "+" : ""}{metrics.occupancyChange.toFixed(1)}%
-              </span>
-              <span className="text-muted-foreground ml-1">vs mes anterior</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Ingresos totales */}
-        <Card className="hover-scale border-secondary/20">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Ingresos Totales</CardTitle>
-            <DollarSign className="h-4 w-4 text-secondary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-secondary">
-              {formatCurrency(metrics.totalRevenue)}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              {metrics.confirmedReservations} reservas confirmadas
-            </p>
-            <div className="flex items-center mt-2 text-xs">
-              {metrics.revenueChange >= 0 ? (
-                <TrendingUp className="h-3 w-3 text-success mr-1" />
-              ) : (
-                <TrendingDown className="h-3 w-3 text-destructive mr-1" />
-              )}
-              <span className={metrics.revenueChange >= 0 ? "text-success" : "text-destructive"}>
-                {metrics.revenueChange >= 0 ? "+" : ""}{metrics.revenueChange.toFixed(1)}%
-              </span>
-              <span className="text-muted-foreground ml-1">vs mes anterior</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* ADR (Tarifa Promedio) */}
-        <Card className="hover-scale border-billing/20">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">ADR (Tarifa Promedio)</CardTitle>
-            <Home className="h-4 w-4 text-billing" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-billing">
-              {formatCurrency(metrics.averageRate)}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Por reserva confirmada
-            </p>
-            <div className="flex items-center mt-2 text-xs text-muted-foreground">
-              <Clock className="h-3 w-3 mr-1" />
-              Actualizado en tiempo real
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* RevPAR */}
-        <Card className="hover-scale border-analytics/20">
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">RevPAR</CardTitle>
-            <TrendingUp className="h-4 w-4 text-analytics" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-analytics">
-              {formatCurrency((metrics.averageRate * metrics.occupancyRate) / 100)}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">
-              Revenue per Available Room
-            </p>
-            <div className="flex items-center mt-2 text-xs text-muted-foreground">
-              ADR × Ocupación
-            </div>
-          </CardContent>
-        </Card>
+        <StatCard
+          title="Ocupación"
+          value={`${metrics.occupancyRate.toFixed(1)}%`}
+          icon={Percent}
+          description={`${metrics.occupiedToday} de ${metrics.totalRooms} habitaciones`}
+          trend={metrics.occupancyChange}
+          trendLabel="vs mes anterior"
+          accentColor="primary"
+        />
+        <StatCard
+          title="Ingresos Totales"
+          value={formatCurrency(metrics.totalRevenue)}
+          icon={DollarSign}
+          description={`${metrics.confirmedReservations} reservas confirmadas`}
+          trend={metrics.revenueChange}
+          trendLabel="vs mes anterior"
+          accentColor="secondary"
+        />
+        <StatCard
+          title="ADR (Tarifa Promedio)"
+          value={formatCurrency(metrics.averageRate)}
+          icon={Home}
+          description="Por reserva confirmada"
+          accentColor="orange"
+        />
+        <StatCard
+          title="RevPAR"
+          value={formatCurrency((metrics.averageRate * metrics.occupancyRate) / 100)}
+          icon={TrendingUp}
+          description="Revenue per Available Room"
+          accentColor="blue"
+        />
       </div>
 
       {/* Actividad del día - Layout 2 columnas */}
@@ -465,7 +425,7 @@ export default function DashboardHome() {
           {/* Check-ins y Check-outs */}
           <div className="grid gap-4 md:grid-cols-2">
             {/* Check-ins hoy */}
-            <Card className="border-housekeeping/20">
+            <Card className="hover:shadow-md transition-shadow">
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
                   <CardTitle className="text-lg">Check-ins Hoy</CardTitle>
@@ -495,7 +455,7 @@ export default function DashboardHome() {
             </Card>
 
             {/* Check-outs hoy */}
-            <Card className="border-front-desk/20">
+            <Card className="hover:shadow-md transition-shadow">
               <CardHeader className="flex flex-row items-center justify-between">
                 <div>
                   <CardTitle className="text-lg">Check-outs Hoy</CardTitle>
@@ -526,7 +486,7 @@ export default function DashboardHome() {
           </div>
 
           {/* Estado de reservas - Ancho completo dentro de columna izquierda */}
-          <Card className="border-reservations/20">
+          <Card className="hover:shadow-md transition-shadow">
             <CardHeader>
               <CardTitle className="text-lg">Estado de Reservas</CardTitle>
               <CardDescription>Distribución actual</CardDescription>
@@ -556,7 +516,7 @@ export default function DashboardHome() {
           </Card>
 
           {/* Gestión de Ingresos - Debajo de Estado de Reservas */}
-          <Card className="border-secondary/20 shadow-md">
+          <Card className="hover:shadow-md transition-shadow shadow-sm">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
@@ -637,7 +597,7 @@ export default function DashboardHome() {
 
                 {/* Columna Derecha - Tarjeta Informativa */}
                 <div className="space-y-3">
-                  <div className="p-4 rounded-lg bg-white border-2 border-secondary/20 shadow-sm">
+                  <div className="p-4 rounded-lg bg-card border border-border/50 shadow-sm">
                     <h4 className="text-sm font-semibold mb-3">Tarifa óptima sugerida</h4>
                     {optimalRateData ? (
                       <>
@@ -689,7 +649,7 @@ export default function DashboardHome() {
         {/* Columna Derecha - Overall Rating + Tasks */}
         <div className="space-y-4">
           {/* Overall Rating */}
-          <Card className="border-yellow-500/20">
+          <Card className="hover:shadow-md transition-shadow">
             <CardHeader>
               <CardTitle className="text-lg flex items-center gap-2">
                 <Star className="h-5 w-5 text-yellow-500" />
@@ -751,7 +711,7 @@ export default function DashboardHome() {
           </Card>
 
           {/* Tasks */}
-          <Card className="border-purple-500/20">
+          <Card className="hover:shadow-md transition-shadow">
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>

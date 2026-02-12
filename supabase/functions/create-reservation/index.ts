@@ -1,25 +1,37 @@
+// ===========================================
+// CREATE RESERVATION WITH INVENTORY HOLDS
+// ===========================================
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.3";
+import { handleCorsPrelight, createCorsResponse } from '../_shared/cors.ts';
+import { getSupabaseServiceClient } from '../_shared/supabase.ts';
+import { z } from 'https://deno.land/x/zod@v3.22.4/mod.ts';
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-interface CreateReservationInput {
-  idempotencyKey: string;
-  hotelId: string;
-  roomTypeId: string;
-  checkIn: string;
-  checkOut: string;
-  guests: number;
-  guestBreakdown?: { adults: number; children: number; infants: number };
-  customer: { name: string; email: string; phone?: string };
-  ratePlanId: string;
-  currency: "DOP" | "USD";
-  payment?: { strategy: "stripe_intent" | "pay_at_hotel"; paymentIntentId?: string };
-  metadata?: Record<string, any>;
-}
+// Validation schema
+const CreateReservationSchema = z.object({
+  idempotencyKey: z.string().min(1, 'Idempotency key required'),
+  hotelId: z.string().uuid('Invalid hotel ID'),
+  roomTypeId: z.string().uuid('Invalid room type ID'),
+  checkIn: z.string().datetime('Invalid check-in date'),
+  checkOut: z.string().datetime('Invalid check-out date'),
+  guests: z.number().int().min(1).max(20),
+  guestBreakdown: z.object({
+    adults: z.number().int().min(0).max(20),
+    children: z.number().int().min(0).max(20),
+    infants: z.number().int().min(0).max(20),
+  }).optional(),
+  customer: z.object({
+    name: z.string().min(2).max(100),
+    email: z.string().email('Invalid email'),
+    phone: z.string().optional(),
+  }),
+  ratePlanId: z.string().uuid('Invalid rate plan ID'),
+  currency: z.enum(['DOP', 'USD']),
+  payment: z.object({
+    strategy: z.enum(['stripe_intent', 'pay_at_hotel']),
+    paymentIntentId: z.string().optional(),
+  }).optional(),
+  metadata: z.record(z.any()).optional(),
+});
 
 interface CreateReservationResult {
   reservationId: string;
@@ -28,21 +40,39 @@ interface CreateReservationResult {
   holdExpiresAt?: string;
 }
 
+// Validate request helper
+function validateRequest<T>(schema: z.ZodSchema<T>, data: unknown): T {
+  try {
+    return schema.parse(data);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const messages = error.errors.map(e => `${e.path.join('.')}: ${e.message}`);
+      throw new Error(`Validation failed: ${messages.join(', ')}`);
+    }
+    throw error;
+  }
+}
+
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+  const origin = req.headers.get('origin');
+
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return handleCorsPrelight(origin);
   }
 
   try {
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL") ?? "",
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? ""
-    );
+    console.log('🏨 Create reservation request received');
 
-    const input: CreateReservationInput = await req.json();
-    console.log("Creating reservation:", input);
+    // Validate request body
+    const body = await req.json();
+    const input = validateRequest(CreateReservationSchema, body);
 
-    // ===== (0) IDEMPOTENCIA =====
+    console.log(`✅ Validated reservation for hotel: ${input.hotelId}`);
+
+    const supabase = getSupabaseServiceClient();
+
+    // ===== (0) IDEMPOTENCY =====
     const { data: idemData } = await supabase
       .from("idempotency_keys")
       .select("response")
@@ -51,51 +81,59 @@ serve(async (req) => {
       .maybeSingle();
 
     if (idemData) {
-      console.log("Returning cached response (idempotent)");
-      return new Response(JSON.stringify(idemData.response), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+      console.log('🔄 Returning cached response (idempotent)');
+      return createCorsResponse(idemData.response, 200, origin);
     }
 
-    // ===== (1) VALIDAR FECHAS =====
+    // ===== (1) VALIDATE DATES =====
     const days = enumerateDates(input.checkIn, input.checkOut);
     if (days.length === 0) {
-      throw new Error("InvalidDates: check_in debe ser antes de check_out");
+      throw new Error('Invalid dates: check_in must be before check_out');
     }
 
-    console.log(`Nights: ${days.length}, Days: ${days.join(", ")}`);
+    console.log(`📅 Nights: ${days.length}, Days: ${days.join(", ")}`);
 
-    // ===== (2) CALCULAR PRECIO (revalidado) =====
-    const { data: roomType } = await supabase
+    // ===== (2) CALCULATE PRICE (revalidated) =====
+    const { data: roomType, error: roomTypeError } = await supabase
       .from("room_types")
       .select("base_price_cents")
       .eq("id", input.roomTypeId)
       .eq("hotel_id", input.hotelId)
       .single();
 
-    if (!roomType) {
-      throw new Error("RoomTypeNotFound");
+    if (roomTypeError || !roomType) {
+      console.error(`❌ Room type not found: ${input.roomTypeId}`);
+      return createCorsResponse(
+        { error: 'Room type not found' },
+        404,
+        origin
+      );
     }
 
-    const { data: hotel } = await supabase
+    const { data: hotel, error: hotelError } = await supabase
       .from("hotels")
       .select("tax_rate, currency")
       .eq("id", input.hotelId)
       .single();
 
-    if (!hotel) {
-      throw new Error("HotelNotFound");
+    if (hotelError || !hotel) {
+      console.error(`❌ Hotel not found: ${input.hotelId}`);
+      return createCorsResponse(
+        { error: 'Hotel not found' },
+        404,
+        origin
+      );
     }
 
-    // Base: precio_noche * num_noches
+    // Base: price_per_night * num_nights
     const baseAmountCents = roomType.base_price_cents * days.length;
-    // Aplicar ITBIS (tax_rate, ej: 18% en RD)
+    // Apply tax (e.g., 18% ITBIS in Dominican Republic)
     const taxAmountCents = Math.round(baseAmountCents * hotel.tax_rate);
     const totalAmountCents = baseAmountCents + taxAmountCents;
 
-    console.log(`Pricing: base=${baseAmountCents}, tax=${taxAmountCents}, total=${totalAmountCents}`);
+    console.log(`💰 Pricing: base=${baseAmountCents}, tax=${taxAmountCents}, total=${totalAmountCents}`);
 
-    // ===== (3) LOCK INVENTARIO Y VERIFICAR CUPOS =====
+    // ===== (3) LOCK INVENTORY & VERIFY AVAILABILITY =====
     for (const day of days) {
       const { data: invRow, error: invError } = await supabase
         .from("inventory_by_day")
@@ -106,22 +144,39 @@ serve(async (req) => {
         .single();
 
       if (invError || !invRow) {
-        throw new Error(`NoInventoryRow: ${day}`);
+        console.error(`❌ No inventory row for day: ${day}`);
+        return createCorsResponse(
+          { error: `No inventory configured for ${day}` },
+          500,
+          origin
+        );
       }
 
       const available = invRow.total - invRow.reserved - invRow.holds;
       if (available <= 0) {
-        throw new Error(`SoldOut: ${day} (${invRow.total} total, ${invRow.reserved} reserved, ${invRow.holds} holds)`);
+        console.warn(`⚠️ Sold out on ${day}`);
+        return createCorsResponse(
+          {
+            error: 'Room sold out',
+            details: `No availability on ${day}`
+          },
+          409, // Conflict
+          origin
+        );
       }
     }
 
-    // ===== (4) CREAR RESERVA + FOLIO + APLICAR HOLDS =====
+    console.log('✅ Inventory available for all days');
+
+    // ===== (4) CREATE RESERVATION + FOLIO + APPLY HOLDS =====
     const reservationId = crypto.randomUUID();
     const folioId = crypto.randomUUID();
     const holdMinutes = input.payment?.strategy === "stripe_intent" ? 20 : 60;
     const holdExpiresAt = new Date(Date.now() + holdMinutes * 60_000).toISOString();
 
-    // Crear folio
+    console.log(`⏱️ Hold expires in ${holdMinutes} minutes: ${holdExpiresAt}`);
+
+    // Create folio
     const { error: folioError } = await supabase.from("folios").insert({
       id: folioId,
       hotel_id: input.hotelId,
@@ -131,10 +186,15 @@ serve(async (req) => {
     });
 
     if (folioError) {
-      throw new Error(`FolioInsertError: ${folioError.message}`);
+      console.error(`❌ Folio insert error: ${folioError.message}`);
+      return createCorsResponse(
+        { error: 'Failed to create folio', details: folioError.message },
+        500,
+        origin
+      );
     }
 
-    // Crear reserva
+    // Create reservation
     const { error: resError } = await supabase.from("reservations").insert({
       id: reservationId,
       hotel_id: input.hotelId,
@@ -157,10 +217,17 @@ serve(async (req) => {
     });
 
     if (resError) {
-      throw new Error(`ReservationInsertError: ${resError.message}`);
+      console.error(`❌ Reservation insert error: ${resError.message}`);
+      return createCorsResponse(
+        { error: 'Failed to create reservation', details: resError.message },
+        500,
+        origin
+      );
     }
 
-    // Aplicar holds en inventario
+    console.log(`✅ Reservation created: ${reservationId}`);
+
+    // Apply holds on inventory
     for (const day of days) {
       const { error: holdError } = await supabase.rpc("increment_inventory_holds", {
         p_hotel_id: input.hotelId,
@@ -170,12 +237,21 @@ serve(async (req) => {
       });
 
       if (holdError) {
-        // Rollback manual (compensación)
-        console.error("Error incrementing holds, attempting rollback:", holdError);
-        // En producción: intentar revertir
-        throw new Error(`HoldIncrementError: ${holdError.message}`);
+        console.error(`❌ Hold increment error on ${day}: ${holdError.message}`);
+        // TODO: Implement proper rollback/compensation
+        return createCorsResponse(
+          {
+            error: 'Failed to apply inventory hold',
+            details: holdError.message,
+            day
+          },
+          500,
+          origin
+        );
       }
     }
+
+    console.log('✅ Inventory holds applied');
 
     const response: CreateReservationResult = {
       reservationId,
@@ -184,30 +260,27 @@ serve(async (req) => {
       holdExpiresAt,
     };
 
-    // Guardar respuesta idempotente
+    // Save idempotent response
     await supabase.from("idempotency_keys").insert({
       hotel_id: input.hotelId,
       key: input.idempotencyKey,
       response,
     });
 
-    console.log("Reservation created successfully:", response);
+    console.log('✅ Reservation completed successfully');
 
-    // ===== (5) POST-COMMIT (opcional: webhook/queue) =====
-    // En producción: enqueue job para confirmar pago, enviar emails, etc.
+    return createCorsResponse(response, 200, origin);
 
-    return new Response(JSON.stringify(response), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-      status: 200,
-    });
   } catch (error: any) {
-    console.error("Error creating reservation:", error);
-    return new Response(
-      JSON.stringify({ error: error.message || "InternalError" }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 400,
-      }
+    console.error(`❌ Error: ${error.message}`);
+
+    // Validation errors return 400, others return 500
+    const status = error.message.includes('Validation failed') ? 400 : 500;
+
+    return createCorsResponse(
+      { error: error.message || 'Internal error' },
+      status,
+      origin
     );
   }
 });

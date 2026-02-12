@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { DoorOpen, Bed, User, Calendar, AlertCircle, CheckCircle2, Wrench } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { RoomStatusCard } from "@/components/dashboard/RoomStatusCard";
 
 const statusConfig = {
   CLEAN: {
@@ -80,29 +81,22 @@ interface Reservation {
   guests?: { first_name: string; last_name: string };
 }
 
-export default function RoomStatusGrid() {
+export default function RoomStatusGrid({ hotelId }: { hotelId: string }) {
   const queryClient = useQueryClient();
   const [selectedRoom, setSelectedRoom] = useState<Room | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
   const { data: rooms, isLoading } = useQuery({
-    queryKey: ["rooms-status-grid"],
+    queryKey: ["rooms-status-grid", hotelId],
+    enabled: !!hotelId,
     queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
-        .single();
-
-      if (!userRoles) return [];
-
       const { data, error } = await supabase
         .from("rooms")
         .select(`
           *,
           room_types (name)
         `)
-        .eq("hotel_id", userRoles.hotel_id)
+        .eq("hotel_id", hotelId)
         .order("floor", { ascending: true })
         .order("room_number", { ascending: true });
 
@@ -137,7 +131,7 @@ export default function RoomStatusGrid() {
         .single();
 
       if (error && error.code !== 'PGRST116') throw error;
-      return data as Reservation | null;
+      return data as unknown as Reservation | null;
     },
   });
 
@@ -185,9 +179,9 @@ export default function RoomStatusGrid() {
 
   const handleStatusChange = (status: string) => {
     if (selectedRoom) {
-      updateStatusMutation.mutate({ 
-        roomId: selectedRoom.id, 
-        status 
+      updateStatusMutation.mutate({
+        roomId: selectedRoom.id,
+        status
       });
       setSelectedRoom({ ...selectedRoom, status: status as keyof typeof statusConfig });
     }
@@ -216,23 +210,25 @@ export default function RoomStatusGrid() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
-          {/* Resumen de estados */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {Object.entries(statusConfig).map(([status, config]) => {
+          {/* Resumen de estados - solo muestra estados que existen */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {Object.entries(statusConfig)
+              .filter(([status]) => (statusStats?.[status] || 0) > 0)
+              .map(([status, config]) => {
               const Icon = config.icon;
               const count = statusStats?.[status] || 0;
               return (
-                <div 
-                  key={status} 
-                  className={`p-4 border-2 rounded-lg ${config.border} hover:shadow-md transition-all`}
+                <div
+                  key={status}
+                  className={`p-3 sm:p-4 border-2 rounded-lg ${config.border} hover:shadow-md transition-all`}
                 >
-                  <div className="flex items-center gap-2 mb-2">
-                    <div className={`p-2 rounded-full ${config.color}`}>
+                  <div className="flex items-center gap-2 mb-1 sm:mb-2">
+                    <div className={`p-1.5 sm:p-2 rounded-full ${config.color}`}>
                       <Icon className="h-4 w-4 text-white" />
                     </div>
-                    <span className="font-semibold text-2xl">{count}</span>
+                    <span className="font-semibold text-xl sm:text-2xl">{count}</span>
                   </div>
-                  <p className="text-sm text-muted-foreground">{config.label}</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">{config.label}</p>
                 </div>
               );
             })}
@@ -256,27 +252,14 @@ export default function RoomStatusGrid() {
                       const config = statusConfig[room.status] || statusConfig.CLEAN;
                       const Icon = config?.icon || CheckCircle2;
                       return (
-                        <button
+                        <RoomStatusCard
                           key={room.id}
+                          roomNumber={room.room_number}
+                          type={room.room_types?.name || "Standard"}
+                          status={room.status as any}
                           onClick={() => handleRoomClick(room)}
-                          className={`
-                            p-4 rounded-lg border-2 ${config.border}
-                            ${config.color} text-white
-                            transition-all hover:scale-105 hover:shadow-lg
-                            focus:outline-none focus:ring-2 focus:ring-primary
-                          `}
-                        >
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="font-bold text-xl">{room.room_number}</span>
-                            <Icon className="h-5 w-5" />
-                          </div>
-                          <div className="text-xs opacity-90 truncate">
-                            {room.room_types?.name || "Standard"}
-                          </div>
-                          <div className="text-xs font-medium mt-1">
-                            {config.label}
-                          </div>
-                        </button>
+                          className="w-full"
+                        />
                       );
                     })}
                   </div>
@@ -298,7 +281,7 @@ export default function RoomStatusGrid() {
               Ver y modificar el estado de la habitación y sus detalles
             </DialogDescription>
           </DialogHeader>
-          
+
           {selectedRoom && (
             <div className="space-y-4">
               {/* Estado actual */}
@@ -368,8 +351,8 @@ export default function RoomStatusGrid() {
 
               {/* Acciones rápidas */}
               <div className="flex gap-2 pt-2">
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   className="flex-1"
                   onClick={() => {
                     // TODO: Abrir modal de reporte de incidencia para esta habitación

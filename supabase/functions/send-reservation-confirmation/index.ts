@@ -1,33 +1,41 @@
+// ===========================================
+// SEND RESERVATION CONFIRMATION EMAIL
+// ===========================================
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { handleCorsPrelight, createCorsResponse } from '../_shared/cors.ts';
+import { getSupabaseServiceClient } from '../_shared/supabase.ts';
+import { z } from 'https://deno.land/x/zod@v3.22.4/mod.ts';
 
+// Validate environment variables on startup
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-interface ReservationConfirmationRequest {
-  reservation_id: string;
+if (!RESEND_API_KEY) {
+  throw new Error('RESEND_API_KEY environment variable is required');
 }
 
+// Validation schema
+const ReservationConfirmationSchema = z.object({
+  reservation_id: z.string().uuid('Invalid reservation ID'),
+});
+
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response(null, { headers: corsHeaders });
+  const origin = req.headers.get('origin');
+
+  // Handle CORS preflight
+  if (req.method === 'OPTIONS') {
+    return handleCorsPrelight(origin);
   }
 
   try {
-    const { reservation_id } = await req.json() as ReservationConfirmationRequest;
+    console.log('📧 Send reservation confirmation request received');
 
-    if (!reservation_id) {
-      throw new Error("Missing reservation_id");
-    }
+    // Validate request body
+    const body = await req.json();
+    const { reservation_id } = ReservationConfirmationSchema.parse(body);
 
-    // Create Supabase client
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+    console.log(`✅ Validated reservation ID: ${reservation_id}`);
+
+    const supabase = getSupabaseServiceClient();
 
     // Fetch reservation details with guest and room info
     const { data: reservation, error: resError } = await supabase
@@ -42,7 +50,15 @@ serve(async (req) => {
       .single();
 
     if (resError || !reservation) {
-      throw new Error(`Reservation not found: ${resError?.message}`);
+      console.error(`❌ Reservation not found: ${reservation_id}`);
+      return createCorsResponse(
+        {
+          error: 'Reservation not found',
+          details: resError?.message
+        },
+        404,
+        origin
+      );
     }
 
     const hotelName = reservation.hotels?.name || "SOLARIS PMS";
@@ -50,8 +66,15 @@ serve(async (req) => {
     const guestEmail = reservation.guests?.email;
 
     if (!guestEmail) {
-      throw new Error("Guest email not found");
+      console.error('❌ Guest email not found');
+      return createCorsResponse(
+        { error: 'Guest email not found' },
+        400,
+        origin
+      );
     }
+
+    console.log(`✅ Guest email: ${guestEmail}`);
 
     // Calculate number of nights
     const checkIn = new Date(reservation.check_in);
@@ -106,7 +129,7 @@ serve(async (req) => {
             <div class="content">
               <h2>¡Hola ${guestName}!</h2>
               <p>Tu reserva ha sido confirmada. Estamos emocionados de recibirte pronto.</p>
-              
+
               <div class="highlight">
                 <h3 style="margin: 0;">Código de Reserva</h3>
                 <p style="font-size: 24px; font-weight: bold; margin: 5px 0 0 0;">${reservation.confirmation_code || reservation.id.slice(0, 8).toUpperCase()}</p>
@@ -114,37 +137,37 @@ serve(async (req) => {
 
               <div class="info-box">
                 <h3 style="margin-top: 0;">Detalles de la Reserva</h3>
-                
+
                 <div class="detail-row">
                   <span class="label">Check-in:</span>
                   <span class="value">${formatDate(checkIn)}</span>
                 </div>
-                
+
                 <div class="detail-row">
                   <span class="label">Check-out:</span>
                   <span class="value">${formatDate(checkOut)}</span>
                 </div>
-                
+
                 <div class="detail-row">
                   <span class="label">Noches:</span>
                   <span class="value">${nights} ${nights === 1 ? 'noche' : 'noches'}</span>
                 </div>
-                
+
                 <div class="detail-row">
                   <span class="label">Habitación:</span>
                   <span class="value">${reservation.rooms?.room_number} - ${reservation.rooms?.room_type}</span>
                 </div>
-                
+
                 <div class="detail-row">
                   <span class="label">Huéspedes:</span>
                   <span class="value">${reservation.number_of_guests} ${reservation.number_of_guests === 1 ? 'persona' : 'personas'}</span>
                 </div>
-                
+
                 <div class="detail-row">
                   <span class="label">Total:</span>
                   <span class="value" style="font-size: 18px; font-weight: bold; color: #667eea;">$${(reservation.total_amount_cents / 100).toFixed(2)}</span>
                 </div>
-                
+
                 <div class="detail-row" style="border-bottom: none;">
                   <span class="label">Estado:</span>
                   <span class="value">${statusLabels[reservation.status] || reservation.status}</span>
@@ -166,7 +189,7 @@ serve(async (req) => {
               ` : ''}
 
               <p style="margin-top: 30px;">Si necesitas hacer cambios en tu reserva o tienes alguna pregunta, no dudes en contactarnos.</p>
-              
+
               <p><strong>¡Te esperamos!</strong></p>
             </div>
             <div class="footer">
@@ -177,6 +200,8 @@ serve(async (req) => {
         </body>
       </html>
     `;
+
+    console.log('✅ Email HTML template generated');
 
     // Send email using Resend
     const emailRes = await fetch("https://api.resend.com/emails", {
@@ -196,25 +221,41 @@ serve(async (req) => {
     const emailData = await emailRes.json();
 
     if (!emailRes.ok) {
-      console.error("Resend API error:", emailData);
-      throw new Error(`Failed to send email: ${JSON.stringify(emailData)}`);
+      console.error(`❌ Resend API error: ${JSON.stringify(emailData)}`);
+      return createCorsResponse(
+        {
+          error: 'Failed to send email',
+          details: emailData
+        },
+        500,
+        origin
+      );
     }
 
-    return new Response(
-      JSON.stringify({ success: true, email_sent: true, data: emailData }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      }
+    console.log(`✅ Confirmation email sent successfully: ${emailData.id}`);
+
+    return createCorsResponse(
+      { success: true, email_sent: true, data: emailData },
+      200,
+      origin
     );
-  } catch (error) {
-    console.error("Error sending reservation confirmation:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 500,
-      }
+
+  } catch (error: any) {
+    console.error(`❌ Error: ${error.message}`);
+
+    // Zod validation errors
+    if (error.name === 'ZodError') {
+      return createCorsResponse(
+        { error: 'Invalid request data', details: error.errors },
+        400,
+        origin
+      );
+    }
+
+    return createCorsResponse(
+      { error: error.message || 'Internal error' },
+      500,
+      origin
     );
   }
 });

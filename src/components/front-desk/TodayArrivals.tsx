@@ -21,31 +21,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { GuestListItem } from "./common/GuestListItem";
 
-export default function TodayArrivals() {
+export default function TodayArrivals({ hotelId }: { hotelId: string }) {
   const [selectedReservation, setSelectedReservation] = useState<any>(null);
   const [selectedRoom, setSelectedRoom] = useState<string>("");
 
   const today = new Date().toISOString().split("T")[0];
 
   const { data: arrivals, refetch } = useQuery({
-    queryKey: ["today-arrivals"],
+    queryKey: ["today-arrivals", hotelId],
+    enabled: !!hotelId,
     queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
-        .single();
-
-      if (!userRoles) return [];
-
       const { data, error } = await supabase
         .from("reservations")
         .select(`
           *,
           room_types (name)
         `)
-        .eq("hotel_id", userRoles.hotel_id)
+        .eq("hotel_id", hotelId)
         .eq("check_in", today)
         .eq("status", "CONFIRMED")
         .order("created_at", { ascending: true });
@@ -56,21 +50,15 @@ export default function TodayArrivals() {
   });
 
   const { data: availableRooms } = useQuery({
-    queryKey: ["available-rooms", selectedReservation?.room_type_id],
-    enabled: !!selectedReservation,
+    queryKey: ["available-rooms", hotelId, selectedReservation?.room_type_id],
+    enabled: !!hotelId && !!selectedReservation,
     queryFn: async () => {
-      if (!selectedReservation) return [];
-
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
-        .single();
+      if (!selectedReservation || !hotelId) return [];
 
       const { data, error } = await supabase
         .from("rooms")
         .select("*")
-        .eq("hotel_id", userRoles?.hotel_id)
+        .eq("hotel_id", hotelId)
         .eq("room_type_id", selectedReservation.room_type_id)
         .eq("status", "AVAILABLE")
         .order("room_number");
@@ -142,36 +130,18 @@ export default function TodayArrivals() {
           ) : (
             <div className="space-y-3">
               {arrivals.map((reservation: any) => (
-                <div
+                <GuestListItem
                   key={reservation.id}
-                  className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
-                >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <User className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium">
-                        {reservation.customer.name}
-                      </span>
-                      <Badge variant={reservation.status === "CONFIRMED" ? "default" : "secondary"}>
-                        {reservation.status}
-                      </Badge>
-                    </div>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                      <span>{reservation.room_types?.name}</span>
-                      <span>{reservation.guests} huéspedes</span>
-                      <span className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        {formatDate(reservation.check_in)} - {formatDate(reservation.check_out)}
-                      </span>
-                    </div>
-                  </div>
-                  <Button
-                    onClick={() => setSelectedReservation(reservation)}
-                    className="bg-front-desk hover:bg-front-desk/90"
-                  >
-                    Check-in
-                  </Button>
-                </div>
+                  id={reservation.id}
+                  guestName={reservation.customer.name}
+                  guestsCount={reservation.guests}
+                  roomType={reservation.roomType?.name || "Standard"}
+                  date={formatDate(reservation.check_in)}
+                  status={reservation.status}
+                  type="arrival"
+                  onAction={() => setSelectedReservation(reservation)}
+                  actionLabel="Check-in"
+                />
               ))}
             </div>
           )}
@@ -183,14 +153,14 @@ export default function TodayArrivals() {
           <DialogHeader>
             <DialogTitle>Realizar Check-in</DialogTitle>
           </DialogHeader>
-          
+
           {selectedReservation && (
             <div className="space-y-4">
               <div>
                 <p className="text-sm font-medium mb-1">Huésped</p>
                 <p className="text-lg">{selectedReservation.customer.name}</p>
               </div>
-              
+
               <div>
                 <p className="text-sm font-medium mb-1">Tipo de habitación</p>
                 <p>{selectedReservation.room_types?.name}</p>

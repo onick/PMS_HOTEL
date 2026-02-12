@@ -1,38 +1,40 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@14.21.0";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { handleCorsPrelight, createCorsResponse } from '../_shared/cors.ts';
+import { getSupabaseServiceClient } from '../_shared/supabase.ts';
+import { SubscriptionCheckoutSchema, validateRequest } from '../_shared/validation.ts';
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY") as string, {
+// Validate environment on startup
+const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY");
+if (!STRIPE_SECRET_KEY) {
+  throw new Error('STRIPE_SECRET_KEY environment variable is required');
+}
+
+const stripe = new Stripe(STRIPE_SECRET_KEY, {
   apiVersion: "2023-10-16",
 });
 
-const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-
-// Plan Price IDs - Configured with actual Stripe Price IDs
+// Plan Price IDs - Move to env vars for production
 const PLAN_PRICE_IDS: Record<string, string> = {
-  BASIC: "price_1SMoZNJiUN4FeEoTJJwi21Tm",
-  PRO: "price_1SMoayJiUN4FeEoTX4MVfEgz",
-  ENTERPRISE: "price_1SMobqJiUN4FeEoTbTXzXhwU",
+  BASIC: Deno.env.get('STRIPE_BASIC_PRICE_ID') || "price_1SMoZNJiUN4FeEoTJJwi21Tm",
+  PRO: Deno.env.get('STRIPE_PRO_PRICE_ID') || "price_1SMoayJiUN4FeEoTX4MVfEgz",
+  ENTERPRISE: Deno.env.get('STRIPE_ENTERPRISE_PRICE_ID') || "price_1SMobqJiUN4FeEoTbTXzXhwU",
 };
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
+  const origin = req.headers.get('origin');
+
+  if (req.method === 'OPTIONS') {
+    return handleCorsPrelight(origin);
   }
 
   try {
-    const supabase = createClient(supabaseUrl, supabaseServiceKey);
+    const supabase = getSupabaseServiceClient();
 
-    // Get user from auth header
+    // Authenticate user
     const authHeader = req.headers.get("Authorization");
     if (!authHeader) {
-      throw new Error("No authorization header");
+      return createCorsResponse({ error: 'Missing authorization header' }, 401, origin);
     }
 
     const { data: { user }, error: authError } = await supabase.auth.getUser(
@@ -40,87 +42,89 @@ serve(async (req) => {
     );
 
     if (authError || !user) {
-      throw new Error("Unauthorized");
+      return createCorsResponse({ error: 'Unauthorized' }, 401, origin);
     }
 
-    const { plan, hotelId } = await req.json();
+    // Validate request body
+    const body = await req.json();
+    const validated = validateRequest(SubscriptionCheckoutSchema, body);
 
-    if (!plan || !hotelId) {
-      throw new Error("Missing plan or hotelId");
+    if (!PLAN_PRICE_IDS[validated.plan]) {
+      return createCorsResponse({ error: `Invalid plan: ${validated.plan}` }, 400, origin);
     }
 
-    if (!PLAN_PRICE_IDS[plan]) {
-      throw new Error("Invalid plan");
-    }
-
-    // Verify user has access to this hotel
+    // Verify user has admin access to hotel
     const { data: userRole, error: roleError } = await supabase
       .from("user_roles")
       .select("role")
       .eq("user_id", user.id)
-      .eq("hotel_id", hotelId)
+      .eq("hotel_id", validated.hotelId)
       .single();
 
     if (roleError || !userRole) {
-      throw new Error("User does not have access to this hotel");
+      console.error('Access denied:', { userId: user.id, hotelId: validated.hotelId });
+      return createCorsResponse({ error: 'Access denied to this hotel' }, 403, origin);
     }
 
     if (!["SUPER_ADMIN", "HOTEL_OWNER"].includes(userRole.role)) {
-      throw new Error("Only hotel owners can manage subscriptions");
+      return createCorsResponse(
+        { error: 'Only hotel owners can manage subscriptions' }, 
+        403, 
+        origin
+      );
     }
 
-    // Get subscription info
+    // Get existing subscription
     const { data: subscription } = await supabase
       .from("subscriptions")
-      .select("stripe_customer_id, stripe_subscription_id, status")
-      .eq("hotel_id", hotelId)
+      .select("stripe_customer_id, stripe_subscription_id, status, plan")
+      .eq("hotel_id", validated.hotelId)
       .single();
 
     let customerId = subscription?.stripe_customer_id;
     const existingSubscriptionId = subscription?.stripe_subscription_id;
 
-    // If there's an active Stripe subscription, update it instead of creating a new one
+    // Try to update existing subscription first
     if (existingSubscriptionId && subscription?.status !== 'CANCELED') {
       try {
-        // Get the subscription from Stripe
         const stripeSubscription = await stripe.subscriptions.retrieve(existingSubscriptionId);
 
-        // Update the subscription to the new plan
+        // Update to new plan
         await stripe.subscriptions.update(existingSubscriptionId, {
           items: [{
             id: stripeSubscription.items.data[0].id,
-            price: PLAN_PRICE_IDS[plan],
+            price: PLAN_PRICE_IDS[validated.plan],
           }],
           proration_behavior: 'always_invoice',
           metadata: {
-            hotel_id: hotelId,
-            plan: plan,
+            hotel_id: validated.hotelId,
+            plan: validated.plan,
           },
         });
 
-        // Update our database
+        // Update database
         await supabase
           .from("subscriptions")
-          .update({ plan })
-          .eq("hotel_id", hotelId);
+          .update({ plan: validated.plan })
+          .eq("hotel_id", validated.hotelId);
 
-        return new Response(
-          JSON.stringify({
-            message: "Subscription updated successfully",
-            redirect: `${req.headers.get("origin")}/dashboard/profile?payment=success`
-          }),
-          {
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-            status: 200,
-          }
+        console.log(`✅ Subscription updated: ${subscription.plan} → ${validated.plan}`);
+
+        const successUrl = validated.successUrl || 
+          `${origin}/dashboard/profile?payment=success`;
+
+        return createCorsResponse(
+          { message: 'Subscription updated', redirect: successUrl },
+          200,
+          origin
         );
       } catch (error: any) {
-        console.error("Error updating subscription:", error);
-        // If update fails, fall through to create new checkout
+        console.error("⚠️  Could not update existing subscription:", error.message);
+        // Fall through to create new checkout
       }
     }
 
-    // Create or get customer
+    // Create Stripe customer if needed
     if (!customerId) {
       const { data: profile } = await supabase
         .from("profiles")
@@ -132,7 +136,7 @@ serve(async (req) => {
         email: user.email,
         name: profile?.full_name || user.email,
         metadata: {
-          hotel_id: hotelId,
+          hotel_id: validated.hotelId,
           user_id: user.id,
         },
       });
@@ -142,50 +146,52 @@ serve(async (req) => {
       await supabase
         .from("subscriptions")
         .update({ stripe_customer_id: customerId })
-        .eq("hotel_id", hotelId);
+        .eq("hotel_id", validated.hotelId);
+
+      console.log(`✅ Created Stripe customer: ${customerId}`);
     }
 
-    // Create Checkout Session for new subscription
+    // Create Checkout Session
+    const successUrl = validated.successUrl || `${origin}/dashboard/profile?payment=success`;
+    const cancelUrl = validated.cancelUrl || `${origin}/dashboard/profile?payment=canceled`;
+
     const session = await stripe.checkout.sessions.create({
       customer: customerId,
       mode: "subscription",
       payment_method_types: ["card"],
-      line_items: [
-        {
-          price: PLAN_PRICE_IDS[plan],
-          quantity: 1,
-        },
-      ],
-      success_url: `${req.headers.get("origin")}/dashboard/profile?payment=success`,
-      cancel_url: `${req.headers.get("origin")}/dashboard/profile?payment=canceled`,
+      line_items: [{
+        price: PLAN_PRICE_IDS[validated.plan],
+        quantity: 1,
+      }],
+      success_url: successUrl,
+      cancel_url: cancelUrl,
       metadata: {
-        hotel_id: hotelId,
+        hotel_id: validated.hotelId,
         user_id: user.id,
-        plan: plan,
+        plan: validated.plan,
       },
       subscription_data: {
         metadata: {
-          hotel_id: hotelId,
-          plan: plan,
+          hotel_id: validated.hotelId,
+          plan: validated.plan,
         },
       },
     });
 
-    return new Response(
-      JSON.stringify({ sessionId: session.id, url: session.url }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 200,
-      }
+    console.log(`✅ Checkout session created: ${session.id} for plan ${validated.plan}`);
+
+    return createCorsResponse(
+      { sessionId: session.id, url: session.url },
+      200,
+      origin
     );
+
   } catch (error: any) {
-    console.error("Error creating checkout session:", error);
-    return new Response(
-      JSON.stringify({ error: error.message }),
-      {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-        status: 400,
-      }
+    console.error("❌ Error creating checkout:", error);
+    return createCorsResponse(
+      { error: error.message || 'Failed to create checkout session' },
+      error.message.includes('Validation') ? 400 : 500,
+      origin
     );
   }
 });
