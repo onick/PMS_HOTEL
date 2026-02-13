@@ -112,6 +112,103 @@ class ApiClient {
             params: { from, to },
         });
     }
+
+    // --- Channel Manager ---
+    async getChannelStats() {
+        return this.request<{ data: ChannelStatsData }>('/channels/stats');
+    }
+
+    async getChannels() {
+        return this.request<{ data: ChannelConnectionData[] }>('/channels');
+    }
+
+    async connectChannel(channel: string, credentials?: Record<string, string>) {
+        return this.request<{ message: string; data: ChannelConnectionData }>('/channels', {
+            method: 'POST',
+            body: { channel, credentials },
+        });
+    }
+
+    async updateChannel(id: number, data: { status?: string; credentials?: Record<string, string>; sync_config?: Record<string, unknown> }) {
+        return this.request<{ message: string; data: ChannelConnectionData }>(`/channels/${id}`, {
+            method: 'PUT',
+            body: data,
+        });
+    }
+
+    async deleteChannel(id: number) {
+        return this.request<{ message: string }>(`/channels/${id}`, { method: 'DELETE' });
+    }
+
+    // Mapping management
+    async getRoomTypeMappings(connectionId: number) {
+        return this.request<{ data: RoomTypeMappingData[] }>(`/channels/${connectionId}/room-type-mappings`);
+    }
+
+    async saveRoomTypeMapping(connectionId: number, data: { room_type_id: number; ota_room_type_code: string; ota_room_type_name?: string }) {
+        return this.request<{ message: string; data: RoomTypeMappingData }>(`/channels/${connectionId}/room-type-mappings`, {
+            method: 'POST',
+            body: data,
+        });
+    }
+
+    async deleteRoomTypeMapping(connectionId: number, mappingId: number) {
+        return this.request<{ message: string }>(`/channels/${connectionId}/room-type-mappings/${mappingId}`, {
+            method: 'DELETE',
+        });
+    }
+
+    async saveRatePlanMapping(connectionId: number, data: { rate_plan_id: number; room_type_id: number; ota_rate_plan_code: string; ota_rate_plan_name?: string }) {
+        return this.request<{ message: string }>(`/channels/${connectionId}/rate-plan-mappings`, {
+            method: 'POST',
+            body: data,
+        });
+    }
+
+    // Sync operations
+    async syncChannel(id: number, options?: { dry_run?: boolean; days_ahead?: number }) {
+        return this.request<{ message: string; data: SyncResultData }>(`/channels/${id}/sync`, {
+            method: 'POST',
+            body: options,
+        });
+    }
+
+    async syncInventory(id: number, from: string, to: string, options?: { dry_run?: boolean; direct?: boolean }) {
+        return this.request<{ message: string; data: SyncResultData }>(`/channels/${id}/sync-inventory`, {
+            method: 'POST',
+            body: { from, to, ...options },
+        });
+    }
+
+    async syncRates(id: number, from: string, to: string, options?: { dry_run?: boolean; direct?: boolean }) {
+        return this.request<{ message: string; data: SyncResultData }>(`/channels/${id}/sync-rates`, {
+            method: 'POST',
+            body: { from, to, ...options },
+        });
+    }
+
+    async pullReservations(id: number, options?: { dry_run?: boolean }) {
+        return this.request<{ message: string; data: SyncResultData }>(`/channels/${id}/pull-reservations`, {
+            method: 'POST',
+            body: options,
+        });
+    }
+
+    async validateChannel(id: number) {
+        return this.request<{ data: { valid: boolean; message: string } }>(`/channels/${id}/validate`, {
+            method: 'POST',
+        });
+    }
+
+    async syncAllChannels() {
+        return this.request<{ message: string; data: { queued: number } }>('/channels/sync-all', {
+            method: 'POST',
+        });
+    }
+
+    async getChannelOutbox(id: number) {
+        return this.request<{ data: OutboxItemData[]; stats: { pending: number; processing: number; failed: number } }>(`/channels/${id}/outbox`);
+    }
 }
 
 // --- Error class ---
@@ -291,6 +388,106 @@ export interface PaymentDistributionData {
         total: string;
         by_provider: Record<string, { count: number; amount_cents: number }>;
     }>;
+}
+
+// --- Channel Manager Types ---
+export interface ChannelConnectionData {
+    id: number;
+    channel: string;
+    status: string;
+    last_sync_at: string | null;
+    last_error: string | null;
+    total_reservations_received: number;
+    room_type_mappings: RoomTypeMappingData[];
+    rate_plan_mappings: RatePlanMappingData[];
+    sync_config: Record<string, unknown> | null;
+    created_at: string;
+}
+
+export interface RoomTypeMappingData {
+    id: number;
+    room_type_id: number;
+    room_type_name?: string;
+    ota_room_type_code: string;
+    ota_room_type_name?: string;
+    is_active: boolean;
+}
+
+export interface RatePlanMappingData {
+    id: number;
+    rate_plan_id: number;
+    rate_plan_name?: string;
+    room_type_id: number;
+    ota_rate_plan_code: string;
+    is_active: boolean;
+}
+
+export interface SyncLogData {
+    id: number;
+    channel_connection_id: number;
+    channel?: string;
+    direction: 'PUSH' | 'PULL';
+    type: 'INVENTORY' | 'RATES' | 'RESERVATION';
+    status: 'SUCCESS' | 'PARTIAL' | 'FAILED';
+    items_processed: number;
+    items_failed: number;
+    error_message: string | null;
+    error_code: string | null;
+    retriable: boolean;
+    dry_run: boolean;
+    created_at: string;
+}
+
+export interface ChannelStatsData {
+    channels: Array<{
+        id: number;
+        channel: string;
+        label: string;
+        color: string;
+        status: string;
+        last_sync_at: string | null;
+        last_error: string | null;
+        total_reservations: number;
+        room_types_mapped: number;
+        rate_plans_mapped: number;
+    }>;
+    recent_logs: SyncLogData[];
+    pending_outbox: number;
+    reservations_by_source_30d: Array<{
+        source: string;
+        label: string;
+        count: number;
+        revenue_cents: number;
+        revenue: string;
+    }>;
+    total_active_channels: number;
+    total_channels: number;
+}
+
+export interface SyncResultData {
+    status: string;
+    items_processed: number;
+    items_failed: number;
+    dry_run?: boolean;
+    payload?: unknown;
+    queued?: boolean;
+}
+
+export interface OutboxItemData {
+    id: number;
+    channel_connection_id: number;
+    type: 'INVENTORY' | 'RATES';
+    date: string;
+    room_type_id: number;
+    rate_plan_id: number | null;
+    payload: Record<string, unknown>;
+    status: 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED';
+    attempts: number;
+    max_attempts: number;
+    next_retry_at: string | null;
+    sent_at: string | null;
+    last_error: string | null;
+    created_at: string;
 }
 
 // Singleton instance
