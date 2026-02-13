@@ -1,263 +1,212 @@
-# 🚀 HOTELMATE-CORE: ROADMAP TO SOFT LAUNCH
-**Target: 7-Day Soft Launch | Start: Nov 5, 2025**
+# HOTELMATE PMS — ROADMAP DE MIGRACIÓN Y LANZAMIENTO
+**Última actualización: 13 Feb 2026**
 
 ---
 
-## 📊 CURRENT STATUS
+## ARQUITECTURA ACTUAL
 
-**Overall Readiness**: 65% → **95% (Target)**
+| Capa | Tecnología | Estado |
+|------|-----------|--------|
+| Frontend | React 18 + TypeScript + Vite + shadcn/ui | Producción |
+| Backend API | Laravel 12 + PHP 8.4 + Sanctum | Producción |
+| Base de datos | MySQL 8 (via Laravel) | Producción |
+| Auth legacy | Supabase Auth (en migración) | Temporal |
+| Hosting frontend | Por definir (Vercel/Netlify) | Pendiente |
+| Hosting backend | Por definir (Railway/Forge) | Pendiente |
 
-| Category | Current | Target | Status |
-|----------|---------|--------|--------|
-| Security | 6/10 | 9/10 | 🔄 In Progress |
-| Features | 9/10 | 9/10 | ✅ Ready |
-| Performance | 7/10 | 8/10 | ⏳ Pending |
-| Testing | 5/10 | 7/10 | ⏳ Pending |
-| Infrastructure | 5/10 | 8/10 | ⏳ Pending |
-
----
-
-## 🗓️ 7-DAY SPRINT PLAN
-
-### **DAY 1 (Nov 5): CRITICAL SECURITY FIXES** 🚨
-**Goal**: Make payment system production-ready
-
-- [✅] Create .env.example with documentation
-- [🔄] Fix CORS in all 16 Edge Functions (4/16 done)
-- [🔄] Add Zod validation to all Edge Functions (1/16 done)
-- [ ] Implement rate limiting (Upstash Redis)
-- [ ] Setup error tracking (Sentry)
-- [ ] Test payment flow end-to-end
-
-**Target**: All P0 security issues resolved
-**Owner**: Dev Team
-**Blocker Risk**: HIGH
+**Repos:**
+- Frontend: `github.com/onick/PMS_HOTEL` (branch: main)
+- Backend: `github.com/onick/PMS_HOTEL_API` (branch: main)
 
 ---
 
-### **DAY 2 (Nov 6): INFRASTRUCTURE & MONITORING** 🏗️
-**Goal**: Production observability
+## ESTADO DE MIGRACIÓN SUPABASE → LARAVEL API
 
-- [ ] Setup Sentry error tracking
-  - [ ] Frontend integration
-  - [ ] Edge Functions integration
-  - [ ] Source maps configuration
-- [ ] Setup uptime monitoring (UptimeRobot/Better Uptime)
-- [ ] Configure Supabase alerts
-- [ ] Create incident response playbook
-- [ ] Setup status page
+### Módulos 100% Migrados a Laravel API
+| Módulo | Archivos | Notas |
+|--------|----------|-------|
+| Dashboard Home | DashboardHome.tsx, useDashboardMetrics.ts | 4 endpoints en paralelo |
+| Front Desk | FrontDesk, TodayArrivals, TodayDepartures, InHouseGuests, RoomStatusGrid, RoomStatus, WalkInDialog | Check-in/out, walk-in, status grid |
+| CRM (Huéspedes) | GuestsList, GuestDetails | Lista, detalle, notas, VIP |
+| Settings | HotelSettings, RoomTypesSettings, RoomsSettings, RatePlansSettings, PromoCodesSettings | CRUD completo |
+| Inventario | Inventory page, InventoryMovementDialog | Items + movimientos de stock |
+| Reservaciones (crear) | NewReservationDialog | Crea guest + reservation via API |
+| Channel Manager | ChannelsList, ChannelMappingsDialog | Conexiones, mappings, sync |
+| Reports | ManagerDashboard, ManagerReports (useReports hook) | KPIs, occupancy, ADR, RevPAR, revenue |
 
-**Target**: Zero-downtime monitoring ready
-**Owner**: DevOps
+### Módulos Pendientes de Migrar (aún usan Supabase)
 
----
+#### PRIORIDAD ALTA — Funcionalidad Core
+| Módulo | Archivos | Dependencia Supabase | Endpoint Laravel |
+|--------|----------|---------------------|-----------------|
+| **Auth/Login** | Auth.tsx, Dashboard.tsx | supabase.auth.signIn/signUp, getUser | Crear: /auth/login, /auth/register (ya existen) — migrar UI |
+| **Sidebar/Permisos** | AppSidebar.tsx, usePermissions.ts | user_roles, permissions, role_permissions | Crear: /auth/permissions endpoint |
+| **Reservaciones (listar)** | ReservationsList, ReservationsCalendar, ReservationsTimeline, ReservationDetails | Queries directos a reservations table | Ya existe: /reservations con filtros |
+| **Billing/Folios** | ActiveFolios, BillingStats, FolioDetails, RecentTransactions, PaymentMethods | Queries a folios, transactions | Ya existe: /folios/{id}, /folios/{id}/payments |
 
-### **DAY 3 (Nov 7): CRITICAL TESTING** 🧪
-**Goal**: 60% coverage on critical paths
+#### PRIORIDAD MEDIA — Reportes y Analytics
+| Módulo | Archivos | Dependencia Supabase |
+|--------|----------|---------------------|
+| **Analytics** | AnalyticsMetrics, OccupancyChart, RevenueChart, RevenueByRoomType, RevenueByChannel, ChannelDistribution | Queries complejos con aggregates |
+| **Reports page** | Reports.tsx | user_roles + rooms + reservations |
+| **Revenue** | Revenue.tsx, CompetitorRates, RateCalendar, RevenueSettings | Queries directos |
 
-- [ ] Write payment flow tests (E2E)
-  - [ ] Create payment intent
-  - [ ] Confirm payment
-  - [ ] Webhook handling
-- [ ] Write subscription tests
-  - [ ] Checkout flow
-  - [ ] Upgrade/downgrade
-  - [ ] Cancellation
-- [ ] Write check-in/check-out tests
-- [ ] Test RLS policies under load
-- [ ] Security testing (OWASP ZAP)
-
-**Target**: Critical flows fully tested
-**Owner**: QA + Dev
-
----
-
-### **DAY 4 (Nov 8): PERFORMANCE OPTIMIZATION** ⚡
-**Goal**: Sub-3s page loads
-
-- [ ] Implement code splitting
-  - [ ] Route-based lazy loading
-  - [ ] Component lazy loading
-- [ ] Optimize bundle size (2MB → 1.5MB)
-  - [ ] Manual chunks for vendor libs
-  - [ ] Tree shaking unused code
-- [ ] Add React Query optimizations
-- [ ] Implement Service Worker (PWA)
-- [ ] CDN configuration for static assets
-- [ ] Lighthouse audit (target: 90+)
-
-**Target**: <1.5MB bundle, <3s load time
-**Owner**: Frontend Team
+#### PRIORIDAD BAJA — Módulos Secundarios
+| Módulo | Archivos | Dependencia Supabase |
+|--------|----------|---------------------|
+| **Housekeeping** | 7 componentes | rooms status, incidents, checklists |
+| **Tasks** | Tasks.tsx | CRUD tareas |
+| **Staff** | Staff.tsx | user_roles, profiles |
+| **Security** | 5 componentes | permisos, audit logs, GDPR |
+| **Subscriptions** | 5 componentes | Stripe + Supabase |
+| **Profile** | Profile.tsx | auth + subscription |
 
 ---
 
-### **DAY 5 (Nov 9): CI/CD & DEPLOYMENT** 🔄
-**Goal**: Automated, safe deployments
+## PLAN DE TRABAJO — PRÓXIMAS SESIONES
 
-- [ ] Create GitHub Actions workflow
-  - [ ] Lint + Type check on PR
-  - [ ] Run tests on PR
-  - [ ] Auto-deploy to staging
-  - [ ] Deploy to production (manual approval)
-- [ ] Setup staging environment
-  - [ ] Separate Supabase project
-  - [ ] Test database
-  - [ ] Stripe test mode
-- [ ] Configure environment variables
-- [ ] Create rollback procedure
-- [ ] Database migration strategy
+### FASE 1: Migrar Auth Completo (Crítico)
+**Objetivo:** Eliminar dependencia de Supabase Auth
 
-**Target**: One-click deployments
-**Owner**: DevOps
+- [ ] Migrar `Auth.tsx` para usar `api.login()` / `api.register()` (endpoints ya existen)
+- [ ] Migrar `Dashboard.tsx` (layout) para obtener usuario de `api.me()` en vez de supabase.auth
+- [ ] Migrar `AppSidebar.tsx` — reemplazar supabase user_roles con datos del token/API
+- [ ] Crear endpoint `GET /auth/permissions` en Laravel que devuelva permisos del usuario
+- [ ] Migrar `usePermissions.ts` hook a usar API
+- [ ] Eliminar `supabase.auth` de todos los componentes
 
----
+### FASE 2: Migrar Reservaciones Completas
+**Objetivo:** ReservationsList, Calendar, Timeline, Details usando Laravel API
 
-### **DAY 6 (Nov 10): FINAL POLISH & DOCS** 📝
-**Goal**: Production-ready documentation
+- [ ] Migrar `ReservationsList.tsx` → `api.getReservations()` (ya existe con filtros)
+- [ ] Migrar `ReservationsCalendar.tsx` → crear endpoint calendar o usar getReservations con rango
+- [ ] Migrar `ReservationsTimeline.tsx` → similar al calendar
+- [ ] Migrar `ReservationDetails.tsx` → `api.getReservation(id)` (ya existe)
+- [ ] Migrar `CRMStats.tsx` → crear endpoint o calcular desde datos existentes
 
-- [ ] Update README with setup instructions
-- [ ] Document all Edge Functions APIs
-- [ ] Create deployment guide
-- [ ] Write troubleshooting guide
-- [ ] Security audit report
-- [ ] Customer onboarding documentation
-- [ ] Support workflow documentation
+### FASE 3: Migrar Billing/Folios
+**Objetivo:** Folios, pagos, transacciones via Laravel API
 
-**Target**: Team can operate independently
-**Owner**: Tech Lead + Product
+- [ ] Migrar `FolioDetails.tsx` → `api.getFolio(id)`, `api.postCharge()`, `api.recordPayment()`
+- [ ] Migrar `ActiveFolios.tsx` → crear endpoint `/folios?status=open`
+- [ ] Migrar `BillingStats.tsx` → crear endpoint o agregar a dashboard
+- [ ] Migrar `RecentTransactions.tsx` → endpoint de transacciones
+- [ ] Migrar `PaymentMethods.tsx` → endpoint Stripe
 
----
+### FASE 4: Migrar Analytics y Reports
+**Objetivo:** Reportes completos desde Laravel API
 
-### **DAY 7 (Nov 11): SOFT LAUNCH** 🎉
-**Goal**: 3-5 pilot customers onboarded
+- [ ] Migrar `Reports.tsx` → usa endpoints de /reports/ que ya existen
+- [ ] Migrar analytics components → crear endpoints agregados o usar /reports/
+- [ ] Migrar `Revenue.tsx` → /reports/revenue ya existe
 
-**Morning (09:00-12:00): Pre-launch**
-- [ ] Final security scan
-- [ ] Load testing (simulate 100 concurrent users)
-- [ ] Backup all databases
-- [ ] Enable monitoring alerts
-- [ ] Team standby briefing
+### FASE 5: Migrar Módulos Secundarios
+- [ ] Housekeeping (7 componentes)
+- [ ] Tasks
+- [ ] Staff management
+- [ ] Security/Audit logs
 
-**Afternoon (14:00-18:00): Launch**
-- [ ] Deploy to production
-- [ ] Smoke tests
-- [ ] Onboard first pilot customer
-- [ ] Monitor dashboards
-- [ ] Customer success check-in
-
-**Evening (18:00-20:00): Post-launch**
-- [ ] Review error logs
-- [ ] Customer feedback call
-- [ ] Hot-fix any critical issues
-
-**Target**: 3 active pilot hotels
-**Owner**: Full Team
+### FASE 6: Eliminar Supabase
+- [ ] Remover `@supabase/supabase-js` de dependencias
+- [ ] Remover `src/integrations/supabase/` completo
+- [ ] Remover variables VITE_SUPABASE_* de .env
+- [ ] Actualizar documentación
 
 ---
 
-## 🎯 SUCCESS METRICS
+## ESTADO DEL BACKEND LARAVEL (hotelmate-api)
 
-### **Technical Metrics**
-- ✅ 0 critical security vulnerabilities
-- ✅ 95%+ uptime in first week
-- ✅ <3s average page load
-- ✅ 60%+ test coverage
-- ✅ <100ms Edge Function response time
+### Endpoints Implementados y Funcionando
+```
+AUTH:     POST /login, /register, /logout, GET /me, PUT /me, POST /switch-hotel
+HOTEL:    GET /hotel, PUT /hotel, GET /hotel/stats
+ROOMS:    GET /rooms (filtros), POST /rooms, GET/PUT/DELETE /rooms/{id}
+          GET /rooms/status-grid
+          POST /rooms/{id}/mark-clean, mark-dirty, mark-inspecting, out-of-order, back-in-service
+ROOM-TYPES: CRUD completo
+RATE-PLANS: CRUD completo
+PROMO-CODES: CRUD completo
+GUESTS:   CRUD + GET /{id}/reservations, POST /{id}/notes
+RESERVATIONS: CRUD + today-arrivals, today-departures, in-house
+              POST /{id}/check-in, /{id}/check-out, /walk-in
+              POST /reservation-units/{id}/check-in, /check-out
+AVAILABILITY: POST /search, /quote
+FOLIOS:   GET /{id}, /{id}/summary, POST /{id}/charges, /{id}/adjustments,
+          DELETE /{id}/charges/{chargeId}, POST /{id}/post-room-charges
+PAYMENTS: GET /folios/{id}/payments, POST /folios/{id}/payments
+          GET /payments/{id}, POST /payments/{id}/refund
+          GET /payments/by-reservation/{id}
+NIGHT-AUDITS: GET, GET /{id}, POST /run
+NOTIFICATIONS: GET, GET /unread-count, POST /{id}/read, POST /read-all
+REPORTS:  GET /dashboard, /occupancy, /adr, /revpar, /revenue, /no-shows, /payments
+CHANNELS: CRUD + sync, sync-inventory, sync-rates, pull-reservations, validate
+          Room-type-mappings, rate-plan-mappings, outbox
+INVENTORY: CRUD items + POST /{id}/movements
+BOOKING:  GET /{slug}, POST /{slug}/search, /{slug}/quote, /{slug}/reserve
+```
 
-### **Business Metrics**
-- 🎯 3-5 pilot hotels onboarded
-- 🎯 <2 critical bugs reported in week 1
-- 🎯 80%+ customer satisfaction (NPS)
-- 🎯 2+ feature requests collected
-- 🎯 $0-500 MRR (early revenue signal)
-
----
-
-## 🚨 RISK MATRIX
-
-| Risk | Impact | Probability | Mitigation |
-|------|--------|-------------|------------|
-| Stripe integration fails | HIGH | LOW | Test mode + extensive testing |
-| Database migration error | HIGH | MEDIUM | Staging env + backups |
-| Security vulnerability found | CRITICAL | MEDIUM | Security audit + pen testing |
-| Performance issues | MEDIUM | MEDIUM | Load testing + monitoring |
-| Customer data loss | CRITICAL | LOW | Daily backups + replication |
-
----
-
-## 🔄 POST-LAUNCH (Week 2-4)
-
-### **Week 2: Stabilization**
-- Monitor 24/7 for issues
-- Daily customer check-ins
-- Hot-fix deployment as needed
-- Gather feedback systematically
-
-### **Week 3: Iteration**
-- Implement top 3 customer requests
-- Performance tuning based on real usage
-- Add missing integrations
-- Expand test coverage to 80%
-
-### **Week 4: Scale Prep**
-- Plan for 10-50 hotels
-- Database optimization
-- Caching layer (Redis)
-- Multi-region planning
+### Endpoints por Crear
+```
+GET  /auth/permissions          — Permisos del usuario actual
+GET  /housekeeping/rooms        — Vista housekeeping de habitaciones
+POST /housekeeping/incidents    — Reportar incidencia
+GET  /tasks                     — CRUD tareas
+GET  /staff                     — Lista de staff del hotel
+GET  /audit-logs                — Logs de auditoría
+```
 
 ---
 
-## 📞 EMERGENCY CONTACTS
+## COMMITS RECIENTES (Migración)
 
-**On-Call Rotation (24/7)**
-- Primary: Dev Lead
-- Secondary: DevOps
-- Escalation: CTO
-
-**Vendor Support**
-- Supabase: support@supabase.com
-- Stripe: https://support.stripe.com
-- Vercel/Lovable: support@lovable.dev
+```
+7462e50 feat: migrate Front Desk & Reservations from Supabase to Laravel API
+9a82fab feat: migrate Dashboard, GuestsList, GuestDetails from Supabase to Laravel API
+e0e302b feat: migrate Settings + Inventory to Laravel API, fix UX issues
+adc41b7 fix: security audit — remove .env from tracking, complete API client
+```
 
 ---
 
-## 📈 VISION: 90-DAY ROADMAP
+## PARA CONTINUAR DESARROLLO
 
-### **Month 1: Validation (Nov)**
-- ✅ Soft launch with 3-5 pilots
-- Achieve product-market fit
-- NPS > 50
+### Setup en nueva máquina:
+```bash
+# Frontend
+git clone https://github.com/onick/PMS_HOTEL.git hotelmate-core
+cd hotelmate-core
+npm install
+cp .env.example .env  # Configurar VITE_API_URL
 
-### **Month 2: Growth (Dec)**
-- Scale to 10-20 hotels
-- Implement top feature requests
-- Build sales & marketing funnel
-- $1K-5K MRR
+# Backend
+git clone https://github.com/onick/PMS_HOTEL_API.git hotelmate-api
+cd hotelmate-api
+composer install
+cp .env.example .env  # Configurar DB, APP_KEY, etc.
+php artisan key:generate
+php artisan migrate --seed
+php artisan serve  # http://localhost:8000
 
-### **Month 3: Scale (Jan 2026)**
-- Public launch
-- 50+ hotels target
-- Partner integrations (Booking.com, Airbnb)
-- Series Seed fundraising prep
+# Frontend dev server
+cd ../hotelmate-core
+npm run dev  # http://localhost:5173
+```
+
+### Variables de entorno clave:
+```
+# Frontend (.env)
+VITE_API_URL=http://localhost:8000/api
+
+# Backend (.env)
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_DATABASE=hotelmate
+DB_USERNAME=root
+DB_PASSWORD=
+```
 
 ---
 
-## 🎓 LESSONS LEARNED (Updated Weekly)
-
-_To be filled during sprint_
-
----
-
-**Last Updated**: Nov 5, 2025, 10:00 AM  
-**Next Review**: Daily standup @ 9:00 AM  
-**Document Owner**: Tech Lead
-
----
-
-## 🔗 QUICK LINKS
-
-- [Architecture Audit Report](./docs/architecture-audit.md)
-- [Security Checklist](./docs/security-checklist.md)
-- [Deployment Guide](./docs/deployment.md)
-- [API Documentation](./docs/api.md)
-- [Customer Onboarding](./docs/onboarding.md)
+**Progreso general migración Supabase → Laravel: ~35% de archivos migrados**
+**Módulos core (Front Desk, Dashboard, Settings, CRM): 100% migrados**
+**Siguiente prioridad: Auth + Reservaciones lista/detalle + Billing**
