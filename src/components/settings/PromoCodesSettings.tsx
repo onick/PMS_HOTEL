@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,8 +15,7 @@ import { Plus, Pencil, Trash2, Tag } from "lucide-react";
 import { toast } from "sonner";
 
 interface PromoCode {
-  id: string;
-  hotel_id: string;
+  id: number;
   code: string;
   description: string | null;
   discount_type: "percentage" | "fixed_amount";
@@ -27,7 +26,6 @@ interface PromoCode {
   max_uses: number | null;
   times_used: number;
   is_active: boolean;
-  created_at: string;
 }
 
 export function PromoCodesSettings() {
@@ -47,66 +45,42 @@ export function PromoCodesSettings() {
 
   const queryClient = useQueryClient();
 
-  // Get hotel_id from user
-  const { data: userRoles } = useQuery({
-    queryKey: ["user-roles"],
+  // Fetch hotel currency
+  const { data: hotelData } = useQuery({
+    queryKey: ["hotel-settings"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No user");
-      
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", user.id)
-        .single();
-      
-      if (error) throw error;
-      return data;
+      const res = await api.getHotel();
+      return res.data;
     },
   });
+  const currency = hotelData?.currency || "USD";
 
-  // Fetch promo codes
+  // Fetch promo codes from Laravel API
   const { data: promoCodes, isLoading } = useQuery({
-    queryKey: ["promo-codes", userRoles?.hotel_id],
+    queryKey: ["promo-codes-settings"],
     queryFn: async () => {
-      if (!userRoles?.hotel_id) return [];
-      
-      const { data, error } = await supabase
-        .from("promo_codes")
-        .select("*")
-        .eq("hotel_id", userRoles.hotel_id)
-        .order("created_at", { ascending: false });
-      
-      if (error) throw error;
-      return data as PromoCode[];
+      const res = await api.getPromoCodes();
+      return res.data as PromoCode[];
     },
-    enabled: !!userRoles?.hotel_id,
   });
 
   // Create mutation
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      if (!userRoles?.hotel_id) throw new Error("No hotel ID");
-      
-      const { error } = await supabase
-        .from("promo_codes")
-        .insert({
-          hotel_id: userRoles.hotel_id,
-          code: data.code.toUpperCase(),
-          description: data.description || null,
-          discount_type: data.discount_type,
-          discount_value: parseFloat(data.discount_value),
-          valid_from: data.valid_from || null,
-          valid_until: data.valid_until || null,
-          min_nights: data.min_nights ? parseInt(data.min_nights) : null,
-          max_uses: data.max_uses ? parseInt(data.max_uses) : null,
-          is_active: data.is_active,
-        });
-      
-      if (error) throw error;
+      return api.createPromoCode({
+        code: data.code.toUpperCase(),
+        description: data.description || null,
+        discount_type: data.discount_type,
+        discount_value: parseFloat(data.discount_value),
+        valid_from: data.valid_from || null,
+        valid_until: data.valid_until || null,
+        min_nights: data.min_nights ? parseInt(data.min_nights) : null,
+        max_uses: data.max_uses ? parseInt(data.max_uses) : null,
+        is_active: data.is_active,
+      });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["promo-codes"] });
+      queryClient.invalidateQueries({ queryKey: ["promo-codes-settings"] });
       toast.success("Código promocional creado exitosamente");
       setOpen(false);
       resetForm();
@@ -118,26 +92,21 @@ export function PromoCodesSettings() {
 
   // Update mutation
   const updateMutation = useMutation({
-    mutationFn: async (data: typeof formData & { id: string }) => {
-      const { error } = await supabase
-        .from("promo_codes")
-        .update({
-          code: data.code.toUpperCase(),
-          description: data.description || null,
-          discount_type: data.discount_type,
-          discount_value: parseFloat(data.discount_value),
-          valid_from: data.valid_from || null,
-          valid_until: data.valid_until || null,
-          min_nights: data.min_nights ? parseInt(data.min_nights) : null,
-          max_uses: data.max_uses ? parseInt(data.max_uses) : null,
-          is_active: data.is_active,
-        })
-        .eq("id", data.id);
-      
-      if (error) throw error;
+    mutationFn: async (data: typeof formData & { id: number }) => {
+      return api.updatePromoCode(data.id, {
+        code: data.code.toUpperCase(),
+        description: data.description || null,
+        discount_type: data.discount_type,
+        discount_value: parseFloat(data.discount_value),
+        valid_from: data.valid_from || null,
+        valid_until: data.valid_until || null,
+        min_nights: data.min_nights ? parseInt(data.min_nights) : null,
+        max_uses: data.max_uses ? parseInt(data.max_uses) : null,
+        is_active: data.is_active,
+      });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["promo-codes"] });
+      queryClient.invalidateQueries({ queryKey: ["promo-codes-settings"] });
       toast.success("Código promocional actualizado exitosamente");
       setOpen(false);
       setEditingCode(null);
@@ -150,16 +119,11 @@ export function PromoCodesSettings() {
 
   // Delete mutation
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("promo_codes")
-        .delete()
-        .eq("id", id);
-      
-      if (error) throw error;
+    mutationFn: async (id: number) => {
+      return api.deletePromoCode(id);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["promo-codes"] });
+      queryClient.invalidateQueries({ queryKey: ["promo-codes-settings"] });
       toast.success("Código promocional eliminado exitosamente");
     },
     onError: (error: any) => {
@@ -206,7 +170,7 @@ export function PromoCodesSettings() {
     }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = (id: number) => {
     if (confirm("¿Está seguro de que desea eliminar este código promocional?")) {
       deleteMutation.mutate(id);
     }
@@ -267,9 +231,9 @@ export function PromoCodesSettings() {
 
                   <div className="space-y-2">
                     <Label htmlFor="discount_type">Tipo de Descuento</Label>
-                    <Select 
-                      value={formData.discount_type} 
-                      onValueChange={(value: "percentage" | "fixed_amount") => 
+                    <Select
+                      value={formData.discount_type}
+                      onValueChange={(value: "percentage" | "fixed_amount") =>
                         setFormData({ ...formData, discount_type: value })
                       }
                     >
@@ -278,7 +242,7 @@ export function PromoCodesSettings() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="percentage">Porcentaje (%)</SelectItem>
-                        <SelectItem value="fixed_amount">Monto Fijo (RD$)</SelectItem>
+                        <SelectItem value="fixed_amount">Monto Fijo ({currency})</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -296,7 +260,7 @@ export function PromoCodesSettings() {
 
                 <div className="space-y-2">
                   <Label htmlFor="discount_value">
-                    Valor del Descuento ({formData.discount_type === "percentage" ? "%" : "RD$"})
+                    Valor del Descuento ({formData.discount_type === "percentage" ? "%" : currency})
                   </Label>
                   <Input
                     id="discount_value"
@@ -406,9 +370,9 @@ export function PromoCodesSettings() {
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary">
-                      {code.discount_type === "percentage" 
-                        ? `${code.discount_value}%` 
-                        : `RD$${code.discount_value.toFixed(2)}`}
+                      {code.discount_type === "percentage"
+                        ? `${code.discount_value}%`
+                        : `$${Number(code.discount_value).toFixed(2)}`}
                     </Badge>
                   </TableCell>
                   <TableCell className="text-sm">
@@ -416,8 +380,8 @@ export function PromoCodesSettings() {
                     <div className="text-muted-foreground">hasta {formatDate(code.valid_until)}</div>
                   </TableCell>
                   <TableCell>
-                    {code.max_uses 
-                      ? `${code.times_used}/${code.max_uses}` 
+                    {code.max_uses
+                      ? `${code.times_used}/${code.max_uses}`
                       : `${code.times_used}`}
                   </TableCell>
                   <TableCell>

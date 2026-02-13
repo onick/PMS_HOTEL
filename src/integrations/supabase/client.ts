@@ -42,42 +42,42 @@ if (DEMO_MODE) {
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
 
-export const supabase = DEMO_MODE 
+export const supabase = DEMO_MODE
   ? createMockSupabaseClient()
   : createClient<Database>(SUPABASE_URL!, SUPABASE_PUBLISHABLE_KEY!, {
-      auth: {
-        storage: localStorage,
-        persistSession: true,
-        autoRefreshToken: true,
-      }
-    });
+    auth: {
+      storage: localStorage,
+      persistSession: true,
+      autoRefreshToken: true,
+    }
+  });
 
 // Cliente mock para modo demo
 function createMockSupabaseClient() {
   return {
     auth: {
-      getSession: async () => ({ 
-        data: { session: DEMO_SESSION }, 
-        error: null 
+      getSession: async () => ({
+        data: { session: DEMO_SESSION },
+        error: null
       }),
-      getUser: async () => ({ 
-        data: { user: DEMO_USER }, 
-        error: null 
+      getUser: async () => ({
+        data: { user: DEMO_USER },
+        error: null
       }),
-      signInWithPassword: async () => ({ 
-        data: { user: DEMO_USER, session: DEMO_SESSION }, 
-        error: null 
+      signInWithPassword: async () => ({
+        data: { user: DEMO_USER, session: DEMO_SESSION },
+        error: null
       }),
-      signUp: async () => ({ 
-        data: { user: DEMO_USER, session: DEMO_SESSION }, 
-        error: null 
+      signUp: async () => ({
+        data: { user: DEMO_USER, session: DEMO_SESSION },
+        error: null
       }),
       signOut: async () => ({ error: null }),
       resetPasswordForEmail: async () => ({ error: null }),
       onAuthStateChange: (callback: any) => {
         // Simular login inmediato
         setTimeout(() => callback('SIGNED_IN', DEMO_SESSION), 100);
-        return { data: { subscription: { unsubscribe: () => {} } } };
+        return { data: { subscription: { unsubscribe: () => { } } } };
       },
     },
     from: (table: string) => createMockTable(table),
@@ -86,89 +86,95 @@ function createMockSupabaseClient() {
     },
     rpc: (fn: string, params?: any) => createMockRpc(fn, params),
     channel: (name: string) => createMockChannel(name),
-    removeChannel: () => {},
-    removeAllChannels: () => {},
+    removeChannel: () => { },
+    removeAllChannels: () => { },
   } as any;
 }
 
-// Mock de tablas con datos de ejemplo
-function createMockTable(table: string) {
-  const mockData: Record<string, any[]> = {
-    user_roles: [{
-      id: 'ur-1',
-      user_id: 'demo-user-123',
-      hotel_id: 'demo-hotel-1',
-      role: 'HOTEL_OWNER',
-      created_at: '2025-01-15T10:00:00Z',
-    }],
-    hotels: [{
-      id: 'demo-hotel-1',
-      name: 'Hotel Playa Paraíso',
-      address: 'Calle Principal #123',
-      city: 'Pedernales',
-      country: 'República Dominicana',
-      currency: 'DOP',
-      timezone: 'America/Santo_Domingo',
-    }],
-    room_types: [
-      { id: 'rt-1', name: 'Estándar', base_price: 250000, max_occupancy: 2 },
-      { id: 'rt-2', name: 'Deluxe', base_price: 450000, max_occupancy: 3 },
-      { id: 'rt-3', name: 'Suite', base_price: 850000, max_occupancy: 4 },
-    ],
-    rooms: [
-      { id: 'r-1', room_number: '101', status: 'available', room_type_id: 'rt-1' },
-      { id: 'r-2', room_number: '102', status: 'occupied', room_type_id: 'rt-1' },
-      { id: 'r-3', room_number: '201', status: 'available', room_type_id: 'rt-2' },
-      { id: 'r-4', room_number: '301', status: 'maintenance', room_type_id: 'rt-3' },
-    ],
-    guests: [
-      { id: 'g-1', name: 'Juan Pérez', email: 'juan@example.com', phone: '+1 809 555 1001' },
-      { id: 'g-2', name: 'María González', email: 'maria@example.com', phone: '+1 809 555 1002' },
-    ],
-    reservations: [
-      { id: 'res-1', guest_id: 'g-1', status: 'CONFIRMED', check_in: '2026-02-15', check_out: '2026-02-20', total_amount_cents: 1250000 },
-      { id: 'res-2', guest_id: 'g-2', status: 'CHECKED_IN', check_in: '2026-02-10', check_out: '2026-02-14', total_amount_cents: 900000 },
-    ],
-    staff: [
-      { id: 's-1', name: 'Ana Rodríguez', role: 'manager', email: 'ana@hotel.com', status: 'active' },
-      { id: 's-2', name: 'Carlos López', role: 'receptionist', email: 'carlos@hotel.com', status: 'active' },
-    ],
-    tasks: [
-      { id: 't-1', title: 'Limpieza habitación 101', status: 'pending', priority: 'high', assigned_to: 's-2' },
-      { id: 't-2', title: 'Revisar aire acondicionado', status: 'in_progress', priority: 'medium', assigned_to: 's-1' },
-    ],
-    incidents: [
-      { id: 'i-1', title: 'Fuga en baño 205', status: 'open', priority: 'high', category: 'maintenance' },
-    ],
-    rate_plans: [
-      { id: 'rp-1', hotel_id: 'demo-hotel-1', name: 'Rack Rate', description: 'Tarifa estándar', is_active: true, modifier_type: 'none', modifier_value: 0 },
-      { id: 'rp-2', hotel_id: 'demo-hotel-1', name: 'Early Bird', description: '15% descuento reservando 30+ días antes', is_active: true, modifier_type: 'discount', modifier_value: 15 },
-      { id: 'rp-3', hotel_id: 'demo-hotel-1', name: 'Last Minute', description: '10% recargo por reserva de último momento', is_active: true, modifier_type: 'surcharge', modifier_value: 10 },
-    ],
-    revenue_settings: [{
-      hotel_id: 'demo-hotel-1',
-      enable_dynamic_pricing: true,
-      occupancy_weight: 70,
-      competitor_weight: 30,
-      min_price_threshold_percent: 70,
-      max_price_threshold_percent: 150,
-    }],
-    competitor_rates: [
-      { id: 'cr-1', hotel_id: 'demo-hotel-1', competitor_name: 'Hilton Resort', room_category: 'Estándar', price_cents: 28500, date: '2026-02-11', source: 'manual' },
-      { id: 'cr-2', hotel_id: 'demo-hotel-1', competitor_name: 'Marriott Beach', room_category: 'Estándar', price_cents: 31000, date: '2026-02-11', source: 'manual' },
-      { id: 'cr-3', hotel_id: 'demo-hotel-1', competitor_name: 'Hilton Resort', room_category: 'Deluxe', price_cents: 49500, date: '2026-02-11', source: 'manual' },
-    ],
-    inventory_by_day: [],
-    channel_connections: [],
-    notifications: [],
-    permissions: [],
-    role_permissions: [],
-    subscriptions: [],
-    profiles: [{ id: 'demo-user-123', full_name: 'Usuario Demo', phone: '+1 809 555 0100', email: 'demo@hotelmate.test' }],
-    staff_invitations: [],
-  };
+// ============================================
+// Persistent in-memory store for demo mode
+// Lives at module scope so mutations survive across
+// createMockTable() calls and query invalidations.
+// ============================================
+const demoStore: Record<string, any[]> = {
+  user_roles: [{
+    id: 'ur-1',
+    user_id: 'demo-user-123',
+    hotel_id: 'demo-hotel-1',
+    role: 'HOTEL_OWNER',
+    created_at: '2025-01-15T10:00:00Z',
+  }],
+  hotels: [{
+    id: 'demo-hotel-1',
+    name: 'Hotel Playa Paraíso',
+    address: 'Calle Principal #123',
+    city: 'Pedernales',
+    country: 'República Dominicana',
+    currency: 'DOP',
+    timezone: 'America/Santo_Domingo',
+  }],
+  room_types: [
+    { id: 'rt-1', name: 'Estándar', base_price: 250000, max_occupancy: 2 },
+    { id: 'rt-2', name: 'Deluxe', base_price: 450000, max_occupancy: 3 },
+    { id: 'rt-3', name: 'Suite', base_price: 850000, max_occupancy: 4 },
+  ],
+  rooms: [
+    { id: 'r-1', room_number: '101', status: 'available', room_type_id: 'rt-1' },
+    { id: 'r-2', room_number: '102', status: 'occupied', room_type_id: 'rt-1' },
+    { id: 'r-3', room_number: '201', status: 'available', room_type_id: 'rt-2' },
+    { id: 'r-4', room_number: '301', status: 'maintenance', room_type_id: 'rt-3' },
+  ],
+  guests: [
+    { id: 'g-1', name: 'Juan Pérez', email: 'juan@example.com', phone: '+1 809 555 1001' },
+    { id: 'g-2', name: 'María González', email: 'maria@example.com', phone: '+1 809 555 1002' },
+  ],
+  reservations: [
+    { id: 'res-1', guest_id: 'g-1', status: 'CONFIRMED', check_in: '2026-02-15', check_out: '2026-02-20', total_amount_cents: 1250000 },
+    { id: 'res-2', guest_id: 'g-2', status: 'CHECKED_IN', check_in: '2026-02-10', check_out: '2026-02-14', total_amount_cents: 900000 },
+  ],
+  staff: [
+    { id: 's-1', name: 'Ana Rodríguez', role: 'manager', email: 'ana@hotel.com', status: 'active' },
+    { id: 's-2', name: 'Carlos López', role: 'receptionist', email: 'carlos@hotel.com', status: 'active' },
+  ],
+  tasks: [
+    { id: 't-1', title: 'Limpieza habitación 101', status: 'pending', priority: 'high', assigned_to: 's-2' },
+    { id: 't-2', title: 'Revisar aire acondicionado', status: 'in_progress', priority: 'medium', assigned_to: 's-1' },
+  ],
+  incidents: [
+    { id: 'i-1', title: 'Fuga en baño 205', status: 'open', priority: 'high', category: 'maintenance' },
+  ],
+  rate_plans: [
+    { id: 'rp-1', hotel_id: 'demo-hotel-1', name: 'Rack Rate', description: 'Tarifa estándar', is_active: true, modifier_type: 'none', modifier_value: 0 },
+    { id: 'rp-2', hotel_id: 'demo-hotel-1', name: 'Early Bird', description: '15% descuento reservando 30+ días antes', is_active: true, modifier_type: 'discount', modifier_value: 15 },
+    { id: 'rp-3', hotel_id: 'demo-hotel-1', name: 'Last Minute', description: '10% recargo por reserva de último momento', is_active: true, modifier_type: 'surcharge', modifier_value: 10 },
+  ],
+  revenue_settings: [{
+    hotel_id: 'demo-hotel-1',
+    enable_dynamic_pricing: true,
+    occupancy_weight: 70,
+    competitor_weight: 30,
+    min_price_threshold_percent: 70,
+    max_price_threshold_percent: 150,
+  }],
+  competitor_rates: [
+    { id: 'cr-1', hotel_id: 'demo-hotel-1', competitor_name: 'Hilton Resort', room_category: 'Estándar', price_cents: 28500, date: '2026-02-11', source: 'manual' },
+    { id: 'cr-2', hotel_id: 'demo-hotel-1', competitor_name: 'Marriott Beach', room_category: 'Estándar', price_cents: 31000, date: '2026-02-11', source: 'manual' },
+    { id: 'cr-3', hotel_id: 'demo-hotel-1', competitor_name: 'Hilton Resort', room_category: 'Deluxe', price_cents: 49500, date: '2026-02-11', source: 'manual' },
+  ],
+  inventory_by_day: [],
+  channel_connections: [],
+  notifications: [],
+  permissions: [],
+  role_permissions: [],
+  subscriptions: [],
+  profiles: [{ id: 'demo-user-123', full_name: 'Usuario Demo', phone: '+1 809 555 0100', email: 'demo@hotelmate.test' }],
+  staff_invitations: [],
+};
 
-  let filtered = [...(mockData[table] || [])];
+// Mock de tablas — reads from persistent demoStore
+function createMockTable(table: string) {
+  // Always read from the shared store (not a copy)
+  const tableData = () => demoStore[table] || [];
 
   function createChain(items: any[]) {
     const chain: any = {
@@ -248,12 +254,14 @@ function createMockTable(table: string) {
 
   return {
     select: (columns = '*', opts?: { count?: string; head?: boolean }) => {
+      // Fresh snapshot from the store each time select is called
+      const snapshot = [...tableData()];
       if (opts?.head) {
         return {
-          ...createChain(filtered),
-          then: (resolve: any, reject?: any) => Promise.resolve({ data: null, error: null, count: filtered.length }).then(resolve, reject),
+          ...createChain(snapshot),
+          then: (resolve: any, reject?: any) => Promise.resolve({ data: null, error: null, count: snapshot.length }).then(resolve, reject),
           eq: (col: string, val: any) => {
-            const f = filtered.filter(d => d[col] === val);
+            const f = snapshot.filter(d => d[col] === val);
             const headChain: any = createChain(f);
             headChain.then = (resolve: any, reject?: any) => Promise.resolve({ data: null, error: null, count: f.length }).then(resolve, reject);
             headChain.eq = (col2: string, val2: any) => {
@@ -266,16 +274,67 @@ function createMockTable(table: string) {
           },
         };
       }
-      return createChain(filtered);
+      return createChain(snapshot);
     },
-    insert: (vals: any) => createChain([{ ...vals, id: 'new-' + Date.now() }]),
-    upsert: (vals: any) => createChain([vals]),
+    insert: (vals: any) => {
+      // Actually add to the persistent store
+      const newRow = { ...vals, id: vals.id || ('new-' + Date.now()), created_at: new Date().toISOString() };
+      if (!demoStore[table]) demoStore[table] = [];
+      demoStore[table].push(newRow);
+      console.log(`🎮 Demo: INSERT into "${table}"`, newRow);
+      return createChain([newRow]);
+    },
+    upsert: (vals: any) => {
+      if (!demoStore[table]) demoStore[table] = [];
+      const idx = demoStore[table].findIndex(d => d.id === vals.id);
+      if (idx >= 0) {
+        demoStore[table][idx] = { ...demoStore[table][idx], ...vals };
+        console.log(`🎮 Demo: UPSERT (update) in "${table}"`, demoStore[table][idx]);
+        return createChain([demoStore[table][idx]]);
+      } else {
+        const newRow = { ...vals, id: vals.id || ('new-' + Date.now()) };
+        demoStore[table].push(newRow);
+        console.log(`🎮 Demo: UPSERT (insert) in "${table}"`, newRow);
+        return createChain([newRow]);
+      }
+    },
     update: (vals: any) => ({
-      eq: (col: string, val: any) => createChain([{ ...vals, [col]: val }]),
-      match: (criteria: any) => createChain([{ ...vals, ...criteria }]),
+      eq: (col: string, val: any) => {
+        // Find and mutate matching rows in the persistent store
+        const store = demoStore[table] || [];
+        const updated: any[] = [];
+        for (const row of store) {
+          if (row[col] === val) {
+            Object.assign(row, vals);
+            updated.push(row);
+          }
+        }
+        console.log(`🎮 Demo: UPDATE "${table}" where ${col}=${val}`, vals, `→ ${updated.length} row(s)`);
+        return createChain(updated);
+      },
+      match: (criteria: any) => {
+        const store = demoStore[table] || [];
+        const updated: any[] = [];
+        for (const row of store) {
+          const matches = Object.entries(criteria).every(([k, v]) => row[k] === v);
+          if (matches) {
+            Object.assign(row, vals);
+            updated.push(row);
+          }
+        }
+        console.log(`🎮 Demo: UPDATE "${table}" by match`, vals, `→ ${updated.length} row(s)`);
+        return createChain(updated);
+      },
     }),
     delete: () => ({
-      eq: (col: string, val: any) => createChain([]),
+      eq: (col: string, val: any) => {
+        if (demoStore[table]) {
+          const before = demoStore[table].length;
+          demoStore[table] = demoStore[table].filter(d => d[col] !== val);
+          console.log(`🎮 Demo: DELETE from "${table}" where ${col}=${val} → ${before - demoStore[table].length} row(s)`);
+        }
+        return createChain([]);
+      },
     }),
   };
 }
@@ -289,7 +348,7 @@ function createMockChannel(name: string) {
       if (callback) callback('SUBSCRIBED', {});
       return createMockChannel(name);
     },
-    unsubscribe: () => {},
+    unsubscribe: () => { },
   };
 }
 
@@ -379,7 +438,7 @@ if (DEMO_MODE) {
     if (fnMatch) {
       const fnName = fnMatch[1];
       let body = {};
-      try { body = init?.body ? JSON.parse(init.body as string) : {}; } catch {}
+      try { body = init?.body ? JSON.parse(init.body as string) : {}; } catch { }
       console.log(`🎮 Demo: Intercepted fetch to "${fnName}"`);
       const result = createMockFunctionInvoke(fnName, { body });
       return new Response(JSON.stringify(result.data || {}), {

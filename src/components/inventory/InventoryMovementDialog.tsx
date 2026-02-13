@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,39 +25,20 @@ export function InventoryMovementDialog({ item, open, onClose }: InventoryMoveme
 
   const movementMutation = useMutation({
     mutationFn: async (data: typeof movement) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No user");
-
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", user.id)
-        .single();
-
-      if (!userRoles) throw new Error("No hotel");
-
       // Calculate the signed quantity based on movement type
       let signedQuantity = data.quantity;
       if (["USAGE", "WASTE", "TRANSFER"].includes(data.movement_type)) {
         signedQuantity = -Math.abs(data.quantity);
       }
 
-      const { error } = await supabase
-        .from("inventory_movements")
-        .insert({
-          hotel_id: userRoles.hotel_id,
-          item_id: item.id,
-          movement_type: data.movement_type,
-          quantity: signedQuantity,
-          notes: data.notes,
-          created_by: user.id,
-        });
-
-      if (error) throw error;
+      return api.createInventoryMovement(item.id, {
+        movement_type: data.movement_type,
+        quantity: signedQuantity,
+        notes: data.notes || null,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inventory"] });
-      queryClient.invalidateQueries({ queryKey: ["inventory-movements"] });
       toast.success("Movimiento registrado correctamente");
       onClose();
       setMovement({

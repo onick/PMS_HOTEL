@@ -147,6 +147,8 @@ const amenityIcons: Record<string, React.ReactNode> = {
 const styles = {
     page: {
         minHeight: "100vh",
+        display: "flex" as const,
+        flexDirection: "column" as const,
         background: `linear-gradient(165deg, ${tokens.sandLight} 0%, ${tokens.sand} 40%, ${tokens.oceanPale} 100%)`,
         fontFamily: "'DM Sans', 'Inter', system-ui, -apple-system, sans-serif",
         color: tokens.ink,
@@ -470,7 +472,7 @@ export default function BookingEngine() {
             {/* Signature: horizon line under header */}
             <div style={styles.horizonLine} />
 
-            <main style={{ maxWidth: 960, margin: "0 auto", padding: "32px 24px 64px" }}>
+            <main style={{ maxWidth: 960, margin: "0 auto", padding: "32px 24px 64px", flex: 1, width: "100%" }}>
 
                 {/* ═══ STEP 1: SEARCH ═══════════════════════════════ */}
                 {step === "search" && (

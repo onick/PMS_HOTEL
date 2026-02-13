@@ -1,6 +1,5 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import api, { type HotelData } from "@/lib/api";
 
 export function HotelSettings() {
   const queryClient = useQueryClient();
@@ -18,31 +18,17 @@ export function HotelSettings() {
     country: "",
     currency: "",
     timezone: "",
-    tax_rate: "",
+    phone: "",
+    email: "",
+    check_in_time: "",
+    check_out_time: "",
   });
 
   const { data: hotel, isLoading } = useQuery({
     queryKey: ["hotel-settings"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not authenticated");
-
-      const { data: userRole } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", user.id)
-        .single();
-
-      if (!userRole) throw new Error("No hotel assigned");
-
-      const { data, error } = await supabase
-        .from("hotels")
-        .select("*")
-        .eq("id", userRole.hotel_id)
-        .single();
-
-      if (error) throw error;
-      return data;
+      const response = await api.getHotel();
+      return response.data;
     },
   });
 
@@ -55,37 +41,29 @@ export function HotelSettings() {
         country: hotel.country || "",
         currency: hotel.currency || "",
         timezone: hotel.timezone || "",
-        tax_rate: hotel.tax_rate ? (hotel.tax_rate * 100).toString() : "",
+        phone: hotel.phone || "",
+        email: hotel.email || "",
+        check_in_time: hotel.check_in_time || "",
+        check_out_time: hotel.check_out_time || "",
       });
     }
   }, [hotel]);
 
   const updateMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      if (!hotel) throw new Error("No hotel loaded");
-
-      const { error } = await supabase
-        .from("hotels")
-        .update({
-          name: data.name,
-          address: data.address,
-          city: data.city,
-          country: data.country,
-          currency: data.currency,
-          timezone: data.timezone,
-          tax_rate: parseFloat(data.tax_rate) / 100,
-        })
-        .eq("id", hotel.id);
-
-      if (error) throw error;
+      // Filter out empty strings so we don't overwrite with nulls
+      const cleaned = Object.fromEntries(
+        Object.entries(data).filter(([_, v]) => v !== "")
+      );
+      return api.updateHotel(cleaned);
     },
-    onSuccess: () => {
+    onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ["hotel-settings"] });
-      toast.success("Configuración actualizada correctamente");
+      toast.success(response.message || "Configuración actualizada correctamente");
     },
-    onError: (error) => {
+    onError: (error: any) => {
       console.error("Error updating hotel:", error);
-      toast.error("Error al actualizar la configuración");
+      toast.error(error?.message || "Error al actualizar la configuración");
     },
   });
 
@@ -126,6 +104,25 @@ export function HotelSettings() {
             </div>
 
             <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                value={formData.email}
+                onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="phone">Teléfono</Label>
+              <Input
+                id="phone"
+                value={formData.phone}
+                onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+              />
+            </div>
+
+            <div className="space-y-2">
               <Label htmlFor="address">Dirección</Label>
               <Input
                 id="address"
@@ -149,6 +146,8 @@ export function HotelSettings() {
                 id="country"
                 value={formData.country}
                 onChange={(e) => setFormData({ ...formData, country: e.target.value })}
+                placeholder="DO"
+                maxLength={2}
               />
             </div>
 
@@ -162,9 +161,13 @@ export function HotelSettings() {
                   <SelectValue placeholder="Seleccionar moneda" />
                 </SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="MXN">MXN - Peso Mexicano</SelectItem>
                   <SelectItem value="DOP">DOP - Peso Dominicano</SelectItem>
                   <SelectItem value="USD">USD - Dólar</SelectItem>
                   <SelectItem value="EUR">EUR - Euro</SelectItem>
+                  <SelectItem value="COP">COP - Peso Colombiano</SelectItem>
+                  <SelectItem value="ARS">ARS - Peso Argentino</SelectItem>
+                  <SelectItem value="BRL">BRL - Real Brasileño</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -182,21 +185,29 @@ export function HotelSettings() {
                   <SelectItem value="America/Santo_Domingo">América/Santo Domingo</SelectItem>
                   <SelectItem value="America/New_York">América/New York</SelectItem>
                   <SelectItem value="America/Los_Angeles">América/Los Angeles</SelectItem>
+                  <SelectItem value="America/Mexico_City">América/México City</SelectItem>
                   <SelectItem value="Europe/Madrid">Europa/Madrid</SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="tax_rate">Tasa de Impuesto (%)</Label>
+              <Label htmlFor="check_in_time">Hora de Check-in</Label>
               <Input
-                id="tax_rate"
-                type="number"
-                step="0.01"
-                min="0"
-                max="100"
-                value={formData.tax_rate}
-                onChange={(e) => setFormData({ ...formData, tax_rate: e.target.value })}
+                id="check_in_time"
+                type="time"
+                value={formData.check_in_time}
+                onChange={(e) => setFormData({ ...formData, check_in_time: e.target.value })}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="check_out_time">Hora de Check-out</Label>
+              <Input
+                id="check_out_time"
+                type="time"
+                value={formData.check_out_time}
+                onChange={(e) => setFormData({ ...formData, check_out_time: e.target.value })}
               />
             </div>
           </div>

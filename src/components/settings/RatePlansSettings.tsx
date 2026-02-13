@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,13 +14,23 @@ import { Plus, Pencil, Trash2, Percent } from "lucide-react";
 import { toast } from "sonner";
 
 interface RatePlan {
-  id: string;
-  hotel_id: string;
+  id: number;
   name: string;
+  code: string;
   description: string | null;
-  discount_percentage: number;
+  is_default: boolean;
   is_active: boolean;
-  created_at: string;
+  includes_breakfast: boolean;
+  is_refundable: boolean;
+  valid_from: string | null;
+  valid_until: string | null;
+  min_nights: number | null;
+  max_nights: number | null;
+  cancellation_policy?: {
+    type: string;
+    deadline_hours: number;
+    penalty_percent: number;
+  } | null;
 }
 
 export function RatePlansSettings() {
@@ -28,67 +38,44 @@ export function RatePlansSettings() {
   const [editingPlan, setEditingPlan] = useState<RatePlan | null>(null);
   const [formData, setFormData] = useState({
     name: "",
+    code: "",
     description: "",
-    discount_percentage: "0",
+    is_default: false,
     is_active: true,
+    includes_breakfast: false,
+    is_refundable: true,
+    min_nights: "",
+    max_nights: "",
   });
 
   const queryClient = useQueryClient();
 
-  // Get hotel_id from user
-  const { data: userRoles } = useQuery({
-    queryKey: ["user-roles"],
-    queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No user");
-      
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", user.id)
-        .single();
-      
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  // Fetch rate plans
+  // Fetch rate plans from Laravel API
   const { data: ratePlans, isLoading } = useQuery({
-    queryKey: ["rate-plans", userRoles?.hotel_id],
+    queryKey: ["rate-plans-settings"],
     queryFn: async () => {
-      if (!userRoles?.hotel_id) return [];
-      
-      const { data, error } = await supabase
-        .from("rate_plans")
-        .select("*")
-        .eq("hotel_id", userRoles.hotel_id)
-        .order("name");
-      
-      if (error) throw error;
-      return data as RatePlan[];
+      const res = await api.getRatePlans();
+      return res.data as RatePlan[];
     },
-    enabled: !!userRoles?.hotel_id,
   });
 
   // Create mutation
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      if (!userRoles?.hotel_id) throw new Error("No hotel ID");
-      
-      const { error } = await supabase
-        .from("rate_plans")
-        .insert({
-          hotel_id: userRoles.hotel_id,
-          name: data.name,
-          description: data.description || null,
-          discount_percentage: parseFloat(data.discount_percentage),
-          is_active: data.is_active,
-        });
-      
-      if (error) throw error;
+      return api.createRatePlan({
+        name: data.name,
+        code: data.code || data.name.substring(0, 3).toUpperCase(),
+        description: data.description || null,
+        is_default: data.is_default,
+        is_active: data.is_active,
+        includes_breakfast: data.includes_breakfast,
+        is_refundable: data.is_refundable,
+        min_nights: data.min_nights ? parseInt(data.min_nights) : null,
+        max_nights: data.max_nights ? parseInt(data.max_nights) : null,
+      });
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rate-plans-settings"] });
       queryClient.invalidateQueries({ queryKey: ["rate-plans"] });
       toast.success("Plan de tarifas creado exitosamente");
       setOpen(false);
@@ -101,20 +88,21 @@ export function RatePlansSettings() {
 
   // Update mutation
   const updateMutation = useMutation({
-    mutationFn: async (data: typeof formData & { id: string }) => {
-      const { error } = await supabase
-        .from("rate_plans")
-        .update({
-          name: data.name,
-          description: data.description || null,
-          discount_percentage: parseFloat(data.discount_percentage),
-          is_active: data.is_active,
-        })
-        .eq("id", data.id);
-      
-      if (error) throw error;
+    mutationFn: async (data: typeof formData & { id: number }) => {
+      return api.updateRatePlan(data.id, {
+        name: data.name,
+        code: data.code,
+        description: data.description || null,
+        is_default: data.is_default,
+        is_active: data.is_active,
+        includes_breakfast: data.includes_breakfast,
+        is_refundable: data.is_refundable,
+        min_nights: data.min_nights ? parseInt(data.min_nights) : null,
+        max_nights: data.max_nights ? parseInt(data.max_nights) : null,
+      });
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rate-plans-settings"] });
       queryClient.invalidateQueries({ queryKey: ["rate-plans"] });
       toast.success("Plan de tarifas actualizado exitosamente");
       setOpen(false);
@@ -128,15 +116,11 @@ export function RatePlansSettings() {
 
   // Delete mutation
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("rate_plans")
-        .delete()
-        .eq("id", id);
-      
-      if (error) throw error;
+    mutationFn: async (id: number) => {
+      return api.deleteRatePlan(id);
     },
     onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["rate-plans-settings"] });
       queryClient.invalidateQueries({ queryKey: ["rate-plans"] });
       toast.success("Plan de tarifas eliminado exitosamente");
     },
@@ -148,9 +132,14 @@ export function RatePlansSettings() {
   const resetForm = () => {
     setFormData({
       name: "",
+      code: "",
       description: "",
-      discount_percentage: "0",
+      is_default: false,
       is_active: true,
+      includes_breakfast: false,
+      is_refundable: true,
+      min_nights: "",
+      max_nights: "",
     });
   };
 
@@ -158,9 +147,14 @@ export function RatePlansSettings() {
     setEditingPlan(plan);
     setFormData({
       name: plan.name,
+      code: plan.code,
       description: plan.description || "",
-      discount_percentage: plan.discount_percentage.toString(),
+      is_default: plan.is_default,
       is_active: plan.is_active,
+      includes_breakfast: plan.includes_breakfast,
+      is_refundable: plan.is_refundable,
+      min_nights: plan.min_nights?.toString() || "",
+      max_nights: plan.max_nights?.toString() || "",
     });
     setOpen(true);
   };
@@ -174,7 +168,7 @@ export function RatePlansSettings() {
     }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = (id: number) => {
     if (confirm("¿Está seguro de que desea eliminar este plan de tarifas?")) {
       deleteMutation.mutate(id);
     }
@@ -216,15 +210,28 @@ export function RatePlansSettings() {
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Nombre del Plan</Label>
-                  <Input
-                    id="name"
-                    required
-                    placeholder="Ej: Early Bird"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Nombre del Plan</Label>
+                    <Input
+                      id="name"
+                      required
+                      placeholder="Ej: Early Bird"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="code">Código</Label>
+                    <Input
+                      id="code"
+                      required
+                      placeholder="Ej: EB"
+                      maxLength={10}
+                      value={formData.code}
+                      onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -237,28 +244,64 @@ export function RatePlansSettings() {
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="discount">Descuento (%)</Label>
-                  <Input
-                    id="discount"
-                    type="number"
-                    required
-                    min="0"
-                    max="100"
-                    step="0.01"
-                    placeholder="Ej: 15"
-                    value={formData.discount_percentage}
-                    onChange={(e) => setFormData({ ...formData, discount_percentage: e.target.value })}
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="min_nights">Noches Mínimas</Label>
+                    <Input
+                      id="min_nights"
+                      type="number"
+                      min="1"
+                      placeholder="Opcional"
+                      value={formData.min_nights}
+                      onChange={(e) => setFormData({ ...formData, min_nights: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="max_nights">Noches Máximas</Label>
+                    <Input
+                      id="max_nights"
+                      type="number"
+                      min="1"
+                      placeholder="Opcional"
+                      value={formData.max_nights}
+                      onChange={(e) => setFormData({ ...formData, max_nights: e.target.value })}
+                    />
+                  </div>
                 </div>
 
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="is_active"
-                    checked={formData.is_active}
-                    onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
-                  />
-                  <Label htmlFor="is_active">Plan activo</Label>
+                <div className="space-y-3">
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="is_active"
+                      checked={formData.is_active}
+                      onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
+                    />
+                    <Label htmlFor="is_active">Plan activo</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="is_default"
+                      checked={formData.is_default}
+                      onCheckedChange={(checked) => setFormData({ ...formData, is_default: checked })}
+                    />
+                    <Label htmlFor="is_default">Plan por defecto</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="includes_breakfast"
+                      checked={formData.includes_breakfast}
+                      onCheckedChange={(checked) => setFormData({ ...formData, includes_breakfast: checked })}
+                    />
+                    <Label htmlFor="includes_breakfast">Incluye desayuno</Label>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="is_refundable"
+                      checked={formData.is_refundable}
+                      onCheckedChange={(checked) => setFormData({ ...formData, is_refundable: checked })}
+                    />
+                    <Label htmlFor="is_refundable">Reembolsable</Label>
+                  </div>
                 </div>
 
                 <DialogFooter>
@@ -282,9 +325,10 @@ export function RatePlansSettings() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Código</TableHead>
                 <TableHead>Nombre</TableHead>
                 <TableHead>Descripción</TableHead>
-                <TableHead>Descuento</TableHead>
+                <TableHead>Opciones</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
@@ -292,14 +336,30 @@ export function RatePlansSettings() {
             <TableBody>
               {ratePlans.map((plan) => (
                 <TableRow key={plan.id}>
-                  <TableCell className="font-medium">{plan.name}</TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell>
+                    <Badge variant="outline">{plan.code}</Badge>
+                  </TableCell>
+                  <TableCell className="font-medium">
+                    {plan.name}
+                    {plan.is_default && (
+                      <Badge variant="secondary" className="ml-2 text-xs">Default</Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground max-w-[200px] truncate">
                     {plan.description || "-"}
                   </TableCell>
                   <TableCell>
-                    <Badge variant="secondary">
-                      {plan.discount_percentage}%
-                    </Badge>
+                    <div className="flex gap-1 flex-wrap">
+                      {plan.includes_breakfast && (
+                        <Badge variant="secondary" className="text-xs">Desayuno</Badge>
+                      )}
+                      {plan.is_refundable && (
+                        <Badge variant="secondary" className="text-xs">Reembolsable</Badge>
+                      )}
+                      {plan.min_nights && (
+                        <Badge variant="secondary" className="text-xs">Min {plan.min_nights}n</Badge>
+                      )}
+                    </div>
                   </TableCell>
                   <TableCell>
                     <Badge variant={plan.is_active ? "default" : "secondary"}>

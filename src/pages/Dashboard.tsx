@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase, DEMO_MODE, DEMO_USER } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useNavigate, Outlet } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
@@ -65,10 +66,16 @@ const Dashboard = () => {
 
     setUser(session.user);
 
-    // 🎮 Modo Demo: Usar datos mock directamente
+    // Modo Demo: always login to Laravel API and fetch real hotel data
     if (DEMO_MODE) {
-      console.log("🎮 Modo Demo - Cargando datos de ejemplo");
-      setHotel(DEMO_HOTEL);
+      try {
+        await api.login('admin@hoteldemo.com', 'password');
+        const res = await api.getHotel();
+        setHotel(res.data);
+      } catch (err) {
+        console.warn("Laravel API unavailable, using offline demo:", err);
+        setHotel(DEMO_HOTEL);
+      }
       setLoading(false);
       return;
     }
@@ -111,6 +118,9 @@ const Dashboard = () => {
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    // Also clear Laravel API token
+    try { await api.logout(); } catch { /* ignore */ }
+    localStorage.removeItem('api_token');
     navigate("/auth");
   };
 

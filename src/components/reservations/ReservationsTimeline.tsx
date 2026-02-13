@@ -280,16 +280,16 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
         )}
 
         {/* Month selector */}
-        <div className="flex items-center gap-2">
-          <Button variant="ghost" size="icon" onClick={previousMonth} className="shrink-0">
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="icon" onClick={previousMonth} className="shrink-0 h-8 w-8">
             <ChevronLeft className="h-4 w-4" />
           </Button>
-          
-          <div className="flex-1 overflow-x-auto">
-            <div className="flex gap-2 pb-2">
+
+          <div className="min-w-0 overflow-x-auto">
+            <div className="flex items-center gap-2 pb-2">
               {months.map((month) => {
-                const isCurrentMonth = 
-                  month.getMonth() === currentMonth.getMonth() && 
+                const isCurrentMonth =
+                  month.getMonth() === currentMonth.getMonth() &&
                   month.getFullYear() === currentMonth.getFullYear();
                 return (
                   <Button
@@ -303,12 +303,11 @@ export default function ReservationsTimeline({ hotelId, onUpdate }: Reservations
                   </Button>
                 );
               })}
+              <Button variant="outline" size="icon" onClick={nextMonth} className="shrink-0 h-8 w-8">
+                <ChevronRight className="h-4 w-4" />
+              </Button>
             </div>
           </div>
-          
-          <Button variant="ghost" size="icon" onClick={nextMonth} className="shrink-0">
-            <ChevronRight className="h-4 w-4" />
-          </Button>
         </div>
       </CardHeader>
       <CardContent className="overflow-x-auto">

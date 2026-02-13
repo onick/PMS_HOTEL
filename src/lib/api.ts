@@ -251,7 +251,42 @@ class ApiClient {
         return this.request<{ message: string }>(`/rate-plans/${id}`, { method: 'DELETE' });
     }
 
+    // --- Promo Codes ---
+    async getPromoCodes(params?: Record<string, string>) {
+        const query = params ? '?' + new URLSearchParams(params).toString() : '';
+        return this.request<{ data: any[] }>(`/promo-codes${query}`);
+    }
+    async createPromoCode(data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>('/promo-codes', { method: 'POST', body: data });
+    }
+    async updatePromoCode(id: number, data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>(`/promo-codes/${id}`, { method: 'PUT', body: data });
+    }
+    async deletePromoCode(id: number) {
+        return this.request<{ message: string }>(`/promo-codes/${id}`, { method: 'DELETE' });
+    }
+
     // --- Folios & Billing ---
+    // --- Inventory (Supplies) ---
+    async getInventoryItems() {
+        return this.request<{ data: any[] }>('/inventory');
+    }
+    async createInventoryItem(data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>('/inventory', { method: 'POST', body: data });
+    }
+    async updateInventoryItem(id: number, data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>(`/inventory/${id}`, { method: 'PUT', body: data });
+    }
+    async deleteInventoryItem(id: number) {
+        return this.request<{ message: string }>(`/inventory/${id}`, { method: 'DELETE' });
+    }
+    async getInventoryMovements(itemId: number) {
+        return this.request<{ data: any[] }>(`/inventory/${itemId}/movements`);
+    }
+    async createInventoryMovement(itemId: number, data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any; new_stock: number }>(`/inventory/${itemId}/movements`, { method: 'POST', body: data });
+    }
+
     async getFolio(id: number) {
         return this.request<{ data: any }>(`/folios/${id}`);
     }

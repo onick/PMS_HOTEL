@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { AlertCircle, CheckCircle2, Clock, Plus, User, History } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { toast } from "@/hooks/use-toast";
 import {
   Collapsible,
@@ -240,11 +240,11 @@ export default function IncidentReports() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
 
   // Obtener ID del usuario actual
-  useState(() => {
+  useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       setCurrentUserId(data.user?.id || null);
     });
-  });
+  }, []);
   
   const filteredIncidents = incidents?.filter((i) => {
     if (filterView === "mine") {

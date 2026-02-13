@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,14 +13,16 @@ import { Plus, Pencil, Trash2, BedDouble } from "lucide-react";
 import { toast } from "sonner";
 
 interface RoomType {
-  id: string;
-  hotel_id: string;
+  id: number;
   name: string;
+  code: string;
   description: string | null;
-  base_price_cents: number;
+  base_rate_cents: number;
   base_occupancy: number;
   max_occupancy: number;
-  created_at: string;
+  amenities: string[] | null;
+  is_active: boolean;
+  rooms_count?: number;
 }
 
 export function RoomTypesSettings() {
@@ -28,67 +30,45 @@ export function RoomTypesSettings() {
   const [editingType, setEditingType] = useState<RoomType | null>(null);
   const [formData, setFormData] = useState({
     name: "",
+    code: "",
     description: "",
-    base_price: "",
+    base_rate: "",
     base_occupancy: "2",
     max_occupancy: "4",
   });
 
   const queryClient = useQueryClient();
 
-  // Get hotel_id from user
-  const { data: userRoles } = useQuery({
-    queryKey: ["user-roles"],
+  // Fetch hotel currency
+  const { data: hotelData } = useQuery({
+    queryKey: ["hotel-settings"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No user");
-      
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", user.id)
-        .single();
-      
-      if (error) throw error;
-      return data;
+      const res = await api.getHotel();
+      return res.data;
     },
   });
+  const currency = hotelData?.currency || "USD";
 
-  // Fetch room types
+  // Fetch room types from Laravel API
   const { data: roomTypes, isLoading } = useQuery({
-    queryKey: ["room-types-settings", userRoles?.hotel_id],
+    queryKey: ["room-types-settings"],
     queryFn: async () => {
-      if (!userRoles?.hotel_id) return [];
-      
-      const { data, error } = await supabase
-        .from("room_types")
-        .select("*")
-        .eq("hotel_id", userRoles.hotel_id)
-        .order("name");
-      
-      if (error) throw error;
-      return data as RoomType[];
+      const res = await api.getRoomTypes();
+      return res.data as RoomType[];
     },
-    enabled: !!userRoles?.hotel_id,
   });
 
   // Create mutation
   const createMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
-      if (!userRoles?.hotel_id) throw new Error("No hotel ID");
-      
-      const { error } = await supabase
-        .from("room_types")
-        .insert({
-          hotel_id: userRoles.hotel_id,
-          name: data.name,
-          description: data.description || null,
-          base_price_cents: Math.round(parseFloat(data.base_price) * 100),
-          base_occupancy: parseInt(data.base_occupancy),
-          max_occupancy: parseInt(data.max_occupancy),
-        });
-      
-      if (error) throw error;
+      return api.createRoomType({
+        name: data.name,
+        code: data.code || data.name.substring(0, 3).toUpperCase(),
+        description: data.description || null,
+        base_rate_cents: Math.round(parseFloat(data.base_rate) * 100),
+        base_occupancy: parseInt(data.base_occupancy),
+        max_occupancy: parseInt(data.max_occupancy),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["room-types-settings"] });
@@ -104,19 +84,15 @@ export function RoomTypesSettings() {
 
   // Update mutation
   const updateMutation = useMutation({
-    mutationFn: async (data: typeof formData & { id: string }) => {
-      const { error } = await supabase
-        .from("room_types")
-        .update({
-          name: data.name,
-          description: data.description || null,
-          base_price_cents: Math.round(parseFloat(data.base_price) * 100),
-          base_occupancy: parseInt(data.base_occupancy),
-          max_occupancy: parseInt(data.max_occupancy),
-        })
-        .eq("id", data.id);
-      
-      if (error) throw error;
+    mutationFn: async (data: typeof formData & { id: number }) => {
+      return api.updateRoomType(data.id, {
+        name: data.name,
+        code: data.code,
+        description: data.description || null,
+        base_rate_cents: Math.round(parseFloat(data.base_rate) * 100),
+        base_occupancy: parseInt(data.base_occupancy),
+        max_occupancy: parseInt(data.max_occupancy),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["room-types-settings"] });
@@ -133,13 +109,8 @@ export function RoomTypesSettings() {
 
   // Delete mutation
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("room_types")
-        .delete()
-        .eq("id", id);
-      
-      if (error) throw error;
+    mutationFn: async (id: number) => {
+      return api.deleteRoomType(id);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["room-types-settings"] });
@@ -154,8 +125,9 @@ export function RoomTypesSettings() {
   const resetForm = () => {
     setFormData({
       name: "",
+      code: "",
       description: "",
-      base_price: "",
+      base_rate: "",
       base_occupancy: "2",
       max_occupancy: "4",
     });
@@ -165,8 +137,9 @@ export function RoomTypesSettings() {
     setEditingType(type);
     setFormData({
       name: type.name,
+      code: type.code,
       description: type.description || "",
-      base_price: (type.base_price_cents / 100).toString(),
+      base_rate: (type.base_rate_cents / 100).toString(),
       base_occupancy: type.base_occupancy.toString(),
       max_occupancy: type.max_occupancy.toString(),
     });
@@ -182,16 +155,16 @@ export function RoomTypesSettings() {
     }
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = (id: number) => {
     if (confirm("¿Está seguro de que desea eliminar este tipo de habitación? Esto puede afectar las reservas existentes.")) {
       deleteMutation.mutate(id);
     }
   };
 
   const formatCurrency = (cents: number) => {
-    return new Intl.NumberFormat("es-DO", {
+    return new Intl.NumberFormat("es-MX", {
       style: "currency",
-      currency: "DOP",
+      currency,
     }).format(cents / 100);
   };
 
@@ -231,15 +204,28 @@ export function RoomTypesSettings() {
                 </DialogDescription>
               </DialogHeader>
               <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Nombre del Tipo</Label>
-                  <Input
-                    id="name"
-                    required
-                    placeholder="Ej: Doble Estándar"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  />
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Nombre</Label>
+                    <Input
+                      id="name"
+                      required
+                      placeholder="Ej: Doble Estándar"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="code">Código</Label>
+                    <Input
+                      id="code"
+                      required
+                      placeholder="Ej: DBL"
+                      maxLength={10}
+                      value={formData.code}
+                      onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
+                    />
+                  </div>
                 </div>
 
                 <div className="space-y-2">
@@ -253,16 +239,16 @@ export function RoomTypesSettings() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="base_price">Precio Base (RD$)</Label>
+                  <Label htmlFor="base_rate">Tarifa Base ({currency})</Label>
                   <Input
-                    id="base_price"
+                    id="base_rate"
                     type="number"
                     required
                     min="0"
                     step="0.01"
-                    placeholder="Ej: 2500"
-                    value={formData.base_price}
-                    onChange={(e) => setFormData({ ...formData, base_price: e.target.value })}
+                    placeholder="Ej: 1200"
+                    value={formData.base_rate}
+                    onChange={(e) => setFormData({ ...formData, base_rate: e.target.value })}
                   />
                 </div>
 
@@ -315,28 +301,30 @@ export function RoomTypesSettings() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Código</TableHead>
                 <TableHead>Nombre</TableHead>
                 <TableHead>Descripción</TableHead>
-                <TableHead>Precio Base</TableHead>
-                <TableHead>Ocupación Base</TableHead>
-                <TableHead>Ocupación Máx.</TableHead>
+                <TableHead>Tarifa Base</TableHead>
+                <TableHead>Ocupación</TableHead>
                 <TableHead className="text-right">Acciones</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {roomTypes.map((type) => (
                 <TableRow key={type.id}>
+                  <TableCell>
+                    <Badge variant="outline">{type.code}</Badge>
+                  </TableCell>
                   <TableCell className="font-medium">{type.name}</TableCell>
-                  <TableCell className="text-muted-foreground">
+                  <TableCell className="text-muted-foreground max-w-[200px] truncate">
                     {type.description || "-"}
                   </TableCell>
                   <TableCell>
                     <Badge variant="secondary">
-                      {formatCurrency(type.base_price_cents)}
+                      {formatCurrency(type.base_rate_cents)}
                     </Badge>
                   </TableCell>
-                  <TableCell>{type.base_occupancy} personas</TableCell>
-                  <TableCell>{type.max_occupancy} personas</TableCell>
+                  <TableCell>{type.base_occupancy}-{type.max_occupancy} pers.</TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
                       <Button

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase, DEMO_MODE, DEMO_USER } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,17 +33,25 @@ const Auth = () => {
     }
   };
 
-  // 🎮 Acceso rápido en modo demo
+  // Acceso rapido en modo demo
   const handleDemoLogin = async () => {
     setLoading(true);
-    toast.success("🎮 Modo Demo - Accediendo sin autenticación");
-    
-    // Guardar sesión demo en localStorage
+
+    // Guardar sesion demo en localStorage
     localStorage.setItem('demo_session', JSON.stringify({
       user: DEMO_USER,
       timestamp: Date.now(),
     }));
-    
+
+    // Authenticate with Laravel API using demo credentials
+    try {
+      await api.login('admin@hoteldemo.com', 'password');
+      toast.success("Modo Demo - Conectado al servidor");
+    } catch (err) {
+      console.warn("Laravel API login failed, continuing in offline demo mode:", err);
+      toast.success("Modo Demo - Modo offline (sin servidor)");
+    }
+
     navigate("/dashboard");
     setLoading(false);
   };
@@ -77,6 +86,7 @@ const Auth = () => {
     e.preventDefault();
     setLoading(true);
 
+    // Authenticate with Supabase (legacy)
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
@@ -84,10 +94,18 @@ const Auth = () => {
 
     if (error) {
       toast.error(error.message);
-    } else {
-      navigate("/dashboard");
+      setLoading(false);
+      return;
     }
 
+    // Also authenticate with Laravel API
+    try {
+      await api.login(email, password);
+    } catch (err) {
+      console.warn("Laravel API login failed:", err);
+    }
+
+    navigate("/dashboard");
     setLoading(false);
   };
 

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,7 +10,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { Package, AlertTriangle, TrendingDown, Plus, Search, Filter, ArrowUpDown } from "lucide-react";
 import { toast } from "sonner";
-import { PermissionGuard } from "@/components/auth/PermissionGuard";
 import { InventoryMovementDialog } from "@/components/inventory/InventoryMovementDialog";
 
 export default function Inventory() {
@@ -24,58 +23,31 @@ export default function Inventory() {
     name: "",
     category: "CLEANING",
     unit: "unit",
-    current_stock: 0,
-    min_stock: 10,
-    unit_cost_cents: 0,
+    current_stock: "",
+    min_stock: "10",
+    unit_cost: "",
   });
 
-  // Get hotel_id
-  const { data: userRoles } = useQuery({
-    queryKey: ["user-roles"],
-    queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No user");
-
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", user.id)
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  // Fetch inventory items
+  // Fetch inventory items from Laravel API
   const { data: items, isLoading } = useQuery({
-    queryKey: ["inventory", userRoles?.hotel_id],
-    enabled: !!userRoles?.hotel_id,
+    queryKey: ["inventory"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("inventory_items")
-        .select("*")
-        .eq("hotel_id", userRoles.hotel_id)
-        .order("name");
-
-      if (error) throw error;
-      return data;
+      const res = await api.getInventoryItems();
+      return res.data as any[];
     },
   });
 
   // Add new item mutation
   const addItemMutation = useMutation({
     mutationFn: async (item: typeof newItem) => {
-      if (!userRoles?.hotel_id) throw new Error("No hotel ID");
-
-      const { error } = await supabase
-        .from("inventory_items")
-        .insert({
-          hotel_id: userRoles.hotel_id,
-          ...item,
-        });
-
-      if (error) throw error;
+      return api.createInventoryItem({
+        name: item.name,
+        category: item.category,
+        unit: item.unit,
+        current_stock: parseInt(item.current_stock) || 0,
+        min_stock: parseInt(item.min_stock) || 0,
+        unit_cost_cents: Math.round(parseFloat(item.unit_cost || "0") * 100),
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["inventory"] });
@@ -85,9 +57,9 @@ export default function Inventory() {
         name: "",
         category: "CLEANING",
         unit: "unit",
-        current_stock: 0,
-        min_stock: 10,
-        unit_cost_cents: 0,
+        current_stock: "",
+        min_stock: "10",
+        unit_cost: "",
       });
     },
     onError: () => {
@@ -139,9 +111,7 @@ export default function Inventory() {
             Control de stock y gestión de suministros
           </p>
         </div>
-        {userRoles?.hotel_id && (
-          <PermissionGuard module="inventory" action="create" hotelId={userRoles.hotel_id}>
-            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
               <DialogTrigger asChild>
                 <Button className="bg-orange-500 hover:bg-orange-600">
                   <Plus className="h-4 w-4 mr-2" />
@@ -205,8 +175,10 @@ export default function Inventory() {
                       <Label>Stock Actual</Label>
                       <Input
                         type="number"
+                        min="0"
+                        placeholder="0"
                         value={newItem.current_stock}
-                        onChange={(e) => setNewItem({ ...newItem, current_stock: parseInt(e.target.value) || 0 })}
+                        onChange={(e) => setNewItem({ ...newItem, current_stock: e.target.value })}
                       />
                     </div>
                   </div>
@@ -215,17 +187,21 @@ export default function Inventory() {
                       <Label>Stock Mínimo</Label>
                       <Input
                         type="number"
+                        min="0"
+                        placeholder="10"
                         value={newItem.min_stock}
-                        onChange={(e) => setNewItem({ ...newItem, min_stock: parseInt(e.target.value) || 0 })}
+                        onChange={(e) => setNewItem({ ...newItem, min_stock: e.target.value })}
                       />
                     </div>
                     <div>
                       <Label>Costo Unitario ($)</Label>
                       <Input
                         type="number"
+                        min="0"
                         step="0.01"
-                        value={(newItem.unit_cost_cents / 100).toFixed(2)}
-                        onChange={(e) => setNewItem({ ...newItem, unit_cost_cents: Math.round(parseFloat(e.target.value) * 100) })}
+                        placeholder="0.00"
+                        value={newItem.unit_cost}
+                        onChange={(e) => setNewItem({ ...newItem, unit_cost: e.target.value })}
                       />
                     </div>
                   </div>
@@ -239,8 +215,6 @@ export default function Inventory() {
                 </div>
               </DialogContent>
             </Dialog>
-          </PermissionGuard>
-        )}
       </div>
 
       {/* Statistics Cards */}
