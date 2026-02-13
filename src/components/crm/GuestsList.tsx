@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Users, Search, Eye, ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { formatDate } from "@/lib/date-utils";
 import { GuestsListSkeleton } from "@/components/ui/skeletons/GuestsSkeleton";
 
 interface GuestsListProps {
@@ -23,52 +22,19 @@ export default function GuestsList({ onSelectGuest }: GuestsListProps) {
   const { data: guestsResponse, isLoading } = useQuery({
     queryKey: ["guests-list", searchTerm, currentPage],
     queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
-        .single();
-
-      if (!userRoles) return { data: [], count: 0 };
-
-      const from = (currentPage - 1) * ITEMS_PER_PAGE;
-      const to = from + ITEMS_PER_PAGE - 1;
-
-      // Get active reservations with guest info
-      let query = supabase
-        .from("reservations")
-        .select(`
-          id,
-          check_in,
-          check_out,
-          customer,
-          status,
-          guests,
-          metadata,
-          room_id,
-          room_types(name),
-          rooms(room_number, floor),
-          folio_id,
-          folios(balance_cents, currency)
-        `, { count: 'exact' })
-        .eq("hotel_id", userRoles.hotel_id)
-        .in("status", ["CONFIRMED", "CHECKED_IN"])
-        .order("check_in", { ascending: true })
-        .range(from, to);
-
+      const params: Record<string, string> = {
+        per_page: String(ITEMS_PER_PAGE),
+        page: String(currentPage),
+      };
       if (searchTerm) {
-        query = query.or(`customer->>name.ilike.%${searchTerm}%,customer->>email.ilike.%${searchTerm}%`);
+        params.search = searchTerm;
       }
-
-      const { data, error, count } = await query;
-
-      if (error) throw error;
-      return { data: data || [], count: count || 0 };
+      return api.getGuests(params);
     },
   });
 
   const guestsData = guestsResponse?.data || [];
-  const totalCount = guestsResponse?.count || 0;
+  const totalCount = guestsResponse?.meta?.total || 0;
   const totalPages = Math.ceil(totalCount / ITEMS_PER_PAGE);
 
   const handlePageChange = (newPage: number) => {
@@ -79,28 +45,7 @@ export default function GuestsList({ onSelectGuest }: GuestsListProps) {
 
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
-    setCurrentPage(1); // Reset to first page on search
-  };
-
-  const formatCurrency = (cents: number, currency: string) => {
-    return new Intl.NumberFormat("es-DO", {
-      style: "currency",
-      currency: currency || "DOP",
-    }).format(cents / 100);
-  };
-
-  const formatGuestBreakdown = (reservation: any) => {
-    const breakdown = reservation.metadata?.guestBreakdown;
-    if (!breakdown) {
-      return `${reservation.guests || 0} huéspedes`;
-    }
-
-    const parts = [];
-    if (breakdown.adults > 0) parts.push(`${breakdown.adults} adulto${breakdown.adults > 1 ? 's' : ''}`);
-    if (breakdown.children > 0) parts.push(`${breakdown.children} niño${breakdown.children > 1 ? 's' : ''}`);
-    if (breakdown.infants > 0) parts.push(`${breakdown.infants} bebé${breakdown.infants > 1 ? 's' : ''}`);
-
-    return parts.length > 0 ? parts.join(', ') : `${reservation.guests} huéspedes`;
+    setCurrentPage(1);
   };
 
   return (
@@ -108,7 +53,7 @@ export default function GuestsList({ onSelectGuest }: GuestsListProps) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Users className="h-5 w-5" />
-          Guest List ({totalCount})
+          Huéspedes ({totalCount})
         </CardTitle>
       </CardHeader>
       <CardContent>
@@ -116,7 +61,7 @@ export default function GuestsList({ onSelectGuest }: GuestsListProps) {
           <div className="relative mb-4">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search by guest name or email..."
+              placeholder="Buscar por nombre, email o teléfono..."
               value={searchTerm}
               onChange={(e) => handleSearchChange(e.target.value)}
               className="pl-10"
@@ -127,81 +72,57 @@ export default function GuestsList({ onSelectGuest }: GuestsListProps) {
             <GuestsListSkeleton />
           ) : !guestsData?.length ? (
             <p className="text-muted-foreground text-center py-8">
-              {searchTerm ? "No guests found" : "No active reservations"}
+              {searchTerm ? "No se encontraron huéspedes" : "No hay huéspedes registrados"}
             </p>
           ) : (
             <div className="rounded-md border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="min-w-[150px]">Guest Name</TableHead>
-                    <TableHead className="min-w-[110px]">Check In</TableHead>
-                    <TableHead className="min-w-[110px]">Check Out</TableHead>
-                    <TableHead className="min-w-[130px]">Room Type</TableHead>
-                    <TableHead className="min-w-[160px]">Guests</TableHead>
-                    <TableHead className="min-w-[120px]">Allocated Room</TableHead>
-                    <TableHead className="text-right min-w-[120px]">Due Amount</TableHead>
-                    <TableHead className="min-w-[110px]">Status</TableHead>
-                    <TableHead className="text-right min-w-[100px]">Action</TableHead>
+                    <TableHead className="min-w-[150px]">Nombre</TableHead>
+                    <TableHead className="min-w-[180px]">Email</TableHead>
+                    <TableHead className="min-w-[120px]">Teléfono</TableHead>
+                    <TableHead className="min-w-[80px]">Estadías</TableHead>
+                    <TableHead className="text-right min-w-[120px]">Total Gastado</TableHead>
+                    <TableHead className="min-w-[80px]">VIP</TableHead>
+                    <TableHead className="text-right min-w-[80px]">Acción</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {guestsData.map((reservation: any) => (
-                    <TableRow key={reservation.id} className="hover:bg-muted/50">
+                  {guestsData.map((guest: any) => (
+                    <TableRow key={guest.id} className="hover:bg-muted/50">
                       <TableCell className="font-medium py-4">
-                        {reservation.customer?.name || "N/A"}
+                        {guest.full_name || `${guest.first_name} ${guest.last_name}`}
                       </TableCell>
                       <TableCell className="py-4">
-                        {formatDate(reservation.check_in)}
+                        {guest.email || "—"}
                       </TableCell>
                       <TableCell className="py-4">
-                        {formatDate(reservation.check_out)}
+                        {guest.phone || "—"}
                       </TableCell>
                       <TableCell className="py-4">
-                        {reservation.room_types?.name || "N/A"}
-                      </TableCell>
-                      <TableCell className="py-4">
-                        {formatGuestBreakdown(reservation)}
-                      </TableCell>
-                      <TableCell className="py-4">
-                        {reservation.rooms ? (
-                          <span className="font-medium">
-                            {reservation.rooms.room_number}
-                            {reservation.rooms.floor && <span className="text-muted-foreground text-sm ml-1">(Piso {reservation.rooms.floor})</span>}
-                          </span>
-                        ) : (
-                          <span className="text-muted-foreground">TBD</span>
-                        )}
+                        {guest.total_stays || 0}
                       </TableCell>
                       <TableCell className="text-right font-medium py-4 pr-6">
-                        {reservation.folios?.[0] 
-                          ? formatCurrency(reservation.folios[0].balance_cents, reservation.folios[0].currency)
-                          : "$0.00"}
+                        ${guest.total_spent || "0.00"}
                       </TableCell>
                       <TableCell className="py-4">
-                        <Badge variant={
-                          reservation.status === 'CHECKED_IN' ? 'default' :
-                          reservation.status === 'CONFIRMED' ? 'secondary' :
-                          'outline'
-                        }>
-                          {reservation.status}
-                        </Badge>
+                        {guest.vip_level ? (
+                          <Badge variant="default" className="bg-crm">
+                            VIP {guest.vip_level}
+                          </Badge>
+                        ) : (
+                          <span className="text-muted-foreground text-sm">—</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right py-4">
-                        <div className="flex gap-1 justify-end">
-                          <Button 
-                            variant="ghost" 
-                            size="sm"
-                            onClick={() => onSelectGuest({
-                              id: reservation.id,
-                              name: reservation.customer?.name,
-                              email: reservation.customer?.email,
-                              phone: reservation.customer?.phone,
-                            })}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => onSelectGuest(guest)}
+                        >
+                          <Eye className="h-4 w-4" />
+                        </Button>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -214,7 +135,7 @@ export default function GuestsList({ onSelectGuest }: GuestsListProps) {
           {totalPages > 1 && (
             <div className="flex items-center justify-between px-2 pt-4">
               <div className="text-sm text-muted-foreground">
-                Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, totalCount)} of {totalCount} guests
+                Mostrando {((currentPage - 1) * ITEMS_PER_PAGE) + 1} a {Math.min(currentPage * ITEMS_PER_PAGE, totalCount)} de {totalCount} huéspedes
               </div>
               <div className="flex items-center gap-2">
                 <Button
@@ -224,7 +145,7 @@ export default function GuestsList({ onSelectGuest }: GuestsListProps) {
                   disabled={currentPage === 1}
                 >
                   <ChevronLeft className="h-4 w-4" />
-                  Previous
+                  Anterior
                 </Button>
                 <div className="flex items-center gap-1">
                   {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
@@ -257,7 +178,7 @@ export default function GuestsList({ onSelectGuest }: GuestsListProps) {
                   onClick={() => handlePageChange(currentPage + 1)}
                   disabled={currentPage === totalPages}
                 >
-                  Next
+                  Siguiente
                   <ChevronRight className="h-4 w-4" />
                 </Button>
               </div>

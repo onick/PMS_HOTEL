@@ -116,6 +116,10 @@ class ApiClient {
         });
     }
 
+    async getHotelStats() {
+        return this.request<{ stats: HotelStats }>('/hotel/stats');
+    }
+
     // --- Room Types ---
     async getRoomTypes(params?: Record<string, string>) {
         return this.request<{ data: any[] }>('/room-types', { params });
@@ -702,6 +706,19 @@ export interface HotelData {
     check_out_time?: string;
     tax_rate?: number;
     settings?: Record<string, unknown>;
+}
+
+export interface HotelStats {
+    total_rooms: number;
+    occupied: number;
+    vacant: number;
+    blocked: number;
+    dirty: number;
+    clean: number;
+    today_arrivals: number;
+    today_departures: number;
+    in_house: number;
+    occupancy_rate: number;
 }
 
 // --- Channel Manager Types ---

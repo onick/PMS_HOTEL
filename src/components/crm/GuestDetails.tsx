@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -28,247 +28,58 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
   const queryClient = useQueryClient();
   const [newNote, setNewNote] = useState("");
 
-  // Fetch full guest details from guests table
+  // Fetch full guest details from Laravel API
   const { data: guestDetails } = useQuery({
-    queryKey: ["guest-details", guest?.email],
-    enabled: !!guest?.email && open,
+    queryKey: ["guest-details", guest?.id],
+    enabled: !!guest?.id && open,
     queryFn: async () => {
-      const { data: user } = await supabase.auth.getUser();
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", user.user?.id!)
-        .single();
-
-      if (!userRoles) return null;
-
-      const { data, error } = await supabase
-        .from("guests")
-        .select("*")
-        .eq("hotel_id", userRoles.hotel_id)
-        .eq("email", guest.email)
-        .single();
-
-      if (error) {
-        // Guest doesn't exist yet in guests table, return the passed data
-        return {
-          ...guest,
-          total_stays: 0,
-          total_spent_cents: 0,
-          vip_status: false,
-        };
-      }
-      return data;
+      const res = await api.getGuest(guest.id);
+      return res.data;
     },
   });
 
   const displayGuest = guestDetails || guest;
 
-  const { data: reservations } = useQuery({
+  // Fetch guest reservations
+  const { data: reservationsRes } = useQuery({
     queryKey: ["guest-reservations", guest?.id],
     enabled: !!guest?.id && open,
     queryFn: async () => {
-      // Get hotel_id from user_roles
-      const { data: user } = await supabase.auth.getUser();
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", user.user?.id!)
-        .single();
-
-      if (!userRoles) throw new Error("No se encontró el hotel del usuario");
-
-      const { data, error } = await supabase
-        .from("reservations")
-        .select(`
-          *,
-          room_types (name)
-        `)
-        .eq("hotel_id", userRoles.hotel_id)
-        .contains("customer", { email: guest.email })
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data || [];
+      return api.getGuestReservations(guest.id);
     },
   });
 
-  const { data: notes } = useQuery({
-    queryKey: ["guest-notes", guest?.email],
-    enabled: !!guest?.email && open,
-    queryFn: async () => {
-      // Get hotel_id from user_roles
-      const { data: user } = await supabase.auth.getUser();
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", user.user?.id!)
-        .single();
+  const reservations = reservationsRes?.data || [];
 
-      if (!userRoles) return [];
-
-      // Find guest by email
-      const { data: guestRecord } = await supabase
-        .from("guests")
-        .select("id")
-        .eq("hotel_id", userRoles.hotel_id)
-        .eq("email", guest.email)
-        .single();
-
-      if (!guestRecord) return [];
-
-      const { data, error } = await supabase
-        .from("guest_notes")
-        .select("*")
-        .eq("guest_id", guestRecord.id)
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-
-      // Fetch profiles for each note's user_id
-      if (data && data.length > 0) {
-        const userIds = [...new Set(data.map((note: any) => note.user_id))];
-        const { data: profiles } = await supabase
-          .from("profiles")
-          .select("id, full_name")
-          .in("id", userIds);
-
-        // Map profiles to notes
-        return data.map((note: any) => ({
-          ...note,
-          profile: profiles?.find((p: any) => p.id === note.user_id)
-        }));
-      }
-
-      return data || [];
-    },
-  });
+  // Notes come from guestDetails (loaded via show endpoint)
+  const notes = displayGuest?.notes || [];
 
   const addNoteMutation = useMutation({
-    mutationFn: async (note: string) => {
-      const { data: user } = await supabase.auth.getUser();
-
-      // Get hotel_id from user_roles
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", user.user?.id!)
-        .single();
-
-      if (!userRoles) throw new Error("No se encontró el hotel del usuario");
-
-      // Find or create guest in guests table
-      let guestId = guest.id;
-
-      // Check if guest.id is actually a guest_id or reservation_id
-      const { data: existingGuest } = await supabase
-        .from("guests")
-        .select("id")
-        .eq("hotel_id", userRoles.hotel_id)
-        .eq("email", guest.email)
-        .single();
-
-      if (existingGuest) {
-        guestId = existingGuest.id;
-      } else {
-        // Create new guest record
-        const { data: newGuest, error: guestError } = await supabase
-          .from("guests")
-          .insert({
-            hotel_id: userRoles.hotel_id,
-            name: guest.name,
-            email: guest.email,
-            phone: guest.phone,
-          })
-          .select("id")
-          .single();
-
-        if (guestError) throw guestError;
-        guestId = newGuest.id;
-      }
-
-      const { error } = await supabase
-        .from("guest_notes")
-        .insert({
-          hotel_id: userRoles.hotel_id,
-          guest_id: guestId,
-          user_id: user.user?.id,
-          note: note,
-          note_type: "general",
-        });
-
-      if (error) throw error;
+    mutationFn: async (content: string) => {
+      return api.addGuestNote(guest.id, { content });
     },
     onSuccess: () => {
       toast.success("Nota agregada correctamente");
       setNewNote("");
-      queryClient.invalidateQueries({ queryKey: ["guest-notes", guest.email] });
+      queryClient.invalidateQueries({ queryKey: ["guest-details", guest.id] });
     },
-    onError: (error: any) => {
-      toast.error("Error al agregar nota: " + error.message);
+    onError: () => {
+      toast.error("Error al agregar nota");
     },
   });
 
   const toggleVIPMutation = useMutation({
     mutationFn: async () => {
-      // Get hotel_id from user_roles
-      const { data: user } = await supabase.auth.getUser();
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", user.user?.id!)
-        .single();
-
-      if (!userRoles) throw new Error("No se encontró el hotel del usuario");
-
-      // Find or create guest by email
-      const { data: existingGuest } = await supabase
-        .from("guests")
-        .select("id, vip_status")
-        .eq("hotel_id", userRoles.hotel_id)
-        .eq("email", guest.email)
-        .single();
-
-      let guestId;
-      let currentVipStatus;
-
-      if (existingGuest) {
-        guestId = existingGuest.id;
-        currentVipStatus = existingGuest.vip_status;
-      } else {
-        // Create new guest record
-        const { data: newGuest, error: guestError } = await supabase
-          .from("guests")
-          .insert({
-            hotel_id: userRoles.hotel_id,
-            name: guest.name,
-            email: guest.email,
-            phone: guest.phone,
-            vip_status: true,
-          })
-          .select("id, vip_status")
-          .single();
-
-        if (guestError) throw guestError;
-        guestId = newGuest.id;
-        currentVipStatus = newGuest.vip_status;
-        return;
-      }
-
-      const { error } = await supabase
-        .from("guests")
-        .update({ vip_status: !currentVipStatus })
-        .eq("id", guestId);
-
-      if (error) throw error;
+      const newLevel = displayGuest.vip_level ? null : "GOLD";
+      return api.updateGuest(guest.id, { vip_level: newLevel });
     },
     onSuccess: () => {
       toast.success("Estado VIP actualizado");
-      queryClient.invalidateQueries({ queryKey: ["guests"] });
-      onClose();
+      queryClient.invalidateQueries({ queryKey: ["guest-details", guest.id] });
+      queryClient.invalidateQueries({ queryKey: ["guests-list"] });
     },
-    onError: (error: any) => {
-      toast.error("Error al cambiar estado VIP: " + error.message);
+    onError: () => {
+      toast.error("Error al cambiar estado VIP");
     },
   });
 
@@ -281,16 +92,16 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
           <DialogTitle className="flex items-center justify-between">
             <span className="flex items-center gap-2">
               <User className="h-5 w-5" />
-              {displayGuest.name}
+              {displayGuest.full_name || `${displayGuest.first_name || ""} ${displayGuest.last_name || ""}`}
             </span>
             <Button
-              variant={displayGuest.vip_status ? "default" : "outline"}
+              variant={displayGuest.vip_level ? "default" : "outline"}
               size="sm"
               onClick={() => toggleVIPMutation.mutate()}
-              className={displayGuest.vip_status ? "bg-crm hover:bg-crm/90" : ""}
+              className={displayGuest.vip_level ? "bg-crm hover:bg-crm/90" : ""}
             >
               <Star className="h-3 w-3 mr-1" />
-              {displayGuest.vip_status ? "VIP" : "Marcar VIP"}
+              {displayGuest.vip_level ? `VIP ${displayGuest.vip_level}` : "Marcar VIP"}
             </Button>
           </DialogTitle>
           <DialogDescription>
@@ -321,10 +132,18 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
                     <span className="text-sm">{displayGuest.phone}</span>
                   </div>
                 )}
-                {displayGuest.country && (
+                {(displayGuest.country || displayGuest.city) && (
                   <div className="flex items-center gap-2">
                     <MapPin className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{displayGuest.country}</span>
+                    <span className="text-sm">
+                      {[displayGuest.city, displayGuest.country].filter(Boolean).join(", ")}
+                    </span>
+                  </div>
+                )}
+                {displayGuest.nationality && (
+                  <div className="flex items-center gap-2">
+                    <MapPin className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-sm">Nacionalidad: {displayGuest.nationality}</span>
                   </div>
                 )}
               </div>
@@ -337,21 +156,28 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
                     <p className="text-xs text-muted-foreground">Estadías</p>
                   </div>
                   <div className="p-3 border rounded">
-                    <p className="text-2xl font-bold">${((displayGuest.total_spent_cents || 0) / 100).toFixed(0)}</p>
+                    <p className="text-2xl font-bold">${displayGuest.total_spent || "0.00"}</p>
                     <p className="text-xs text-muted-foreground">Total gastado</p>
                   </div>
                 </div>
               </div>
             </div>
 
-            {displayGuest.notes && (
+            {displayGuest.preferences && (
               <>
                 <Separator />
                 <div>
-                  <h4 className="font-semibold text-sm text-muted-foreground mb-2">Notas generales</h4>
-                  <p className="text-sm">{displayGuest.notes}</p>
+                  <h4 className="font-semibold text-sm text-muted-foreground mb-2">Preferencias</h4>
+                  <p className="text-sm">{displayGuest.preferences}</p>
                 </div>
               </>
+            )}
+
+            {displayGuest.allergies && (
+              <div>
+                <h4 className="font-semibold text-sm text-muted-foreground mb-2">Alergias</h4>
+                <p className="text-sm text-destructive">{displayGuest.allergies}</p>
+              </div>
             )}
           </TabsContent>
 
@@ -367,11 +193,13 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
                     <div key={reservation.id} className="p-4 border rounded-lg">
                       <div className="flex items-start justify-between mb-2">
                         <div>
-                          <p className="font-semibold">{reservation.room_types?.name}</p>
+                          <p className="font-semibold">
+                            {reservation.units?.[0]?.room_type?.name || "—"}
+                          </p>
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <Calendar className="h-3 w-3" />
                             <span>
-                              {formatDate(reservation.check_in)} - {formatDate(reservation.check_out)}
+                              {reservation.check_in_date} - {reservation.check_out_date}
                             </span>
                           </div>
                         </div>
@@ -386,7 +214,7 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
                       <div className="flex items-center gap-2 text-sm">
                         <DollarSign className="h-3 w-3 text-muted-foreground" />
                         <span className="font-semibold">
-                          ${(reservation.total_amount_cents / 100).toFixed(2)}
+                          ${(reservation.total_cents / 100).toFixed(2)}
                         </span>
                       </div>
                     </div>
@@ -426,9 +254,9 @@ export default function GuestDetails({ guest, open, onClose }: GuestDetailsProps
                 <div className="space-y-3">
                   {notes.map((note: any) => (
                     <div key={note.id} className="p-3 border rounded-lg">
-                      <p className="text-sm mb-2">{note.note}</p>
+                      <p className="text-sm mb-2">{note.content}</p>
                       <div className="flex items-center justify-between text-xs text-muted-foreground">
-                        <span>{note.profile?.full_name || "Usuario"}</span>
+                        <span>{note.user?.name || "Usuario"}</span>
                         <span>{formatDate(note.created_at)}</span>
                       </div>
                     </div>
