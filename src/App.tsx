@@ -33,6 +33,7 @@ const Security = lazy(() => import("./pages/dashboard/Security"));
 const Settings = lazy(() => import("./pages/dashboard/Settings"));
 const Profile = lazy(() => import("./pages/dashboard/Profile"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+const BookingEngine = lazy(() => import("./pages/BookingEngine"));
 
 const queryClient = new QueryClient();
 
@@ -71,6 +72,8 @@ const App = () => {
                   <Route path="settings" element={<Settings />} />
                   <Route path="profile" element={<Profile />} />
                 </Route>
+                {/* Public Booking Engine (no auth) */}
+                <Route path="/book/:slug" element={<BookingEngine />} />
                 {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                 <Route path="*" element={<NotFound />} />
               </Routes>
