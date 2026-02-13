@@ -1,8 +1,18 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { DoorOpen, Bed } from "lucide-react";
+
+function getDisplayStatus(room: any): string {
+  if (room.occupancy_status === "OCCUPIED") return "OCCUPIED";
+  if (room.occupancy_status === "BLOCKED") return "OUT_OF_ORDER";
+  if (room.housekeeping_status === "CLEAN") return "AVAILABLE";
+  if (room.housekeeping_status === "DIRTY") return "DIRTY";
+  if (room.housekeeping_status === "INSPECTING") return "CLEANING";
+  if (room.housekeeping_status === "OUT_OF_ORDER") return "OUT_OF_ORDER";
+  return "AVAILABLE";
+}
 
 const statusConfig = {
   AVAILABLE: { label: "Disponible", color: "bg-success" },
@@ -14,42 +24,23 @@ const statusConfig = {
 };
 
 export default function RoomStatus() {
-  const { data: rooms } = useQuery({
-    queryKey: ["room-status"],
-    queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
-        .single();
-
-      if (!userRoles) return [];
-
-      const { data, error } = await supabase
-        .from("rooms")
-        .select(`
-          *,
-          room_types (name)
-        `)
-        .eq("hotel_id", userRoles.hotel_id)
-        .order("floor", { ascending: true })
-        .order("room_number", { ascending: true });
-
-      if (error) throw error;
-      return data || [];
-    },
+  const { data: roomsRes } = useQuery({
+    queryKey: ["rooms-status"],
+    queryFn: () => api.getRooms(),
   });
 
-  // Agrupar por piso
-  const roomsByFloor = rooms?.reduce((acc: any, room: any) => {
+  const rooms = roomsRes?.data || [];
+
+  // Group by floor
+  const roomsByFloor = rooms.reduce((acc: any, room: any) => {
     const floor = room.floor || 0;
     if (!acc[floor]) acc[floor] = [];
     acc[floor].push(room);
     return acc;
   }, {});
 
-  const statusStats = rooms?.reduce((acc: any, room: any) => {
-    const status = room.status || "AVAILABLE";
+  const statusStats = rooms.reduce((acc: any, room: any) => {
+    const status = getDisplayStatus(room);
     acc[status] = (acc[status] || 0) + 1;
     return acc;
   }, {});
@@ -63,7 +54,7 @@ export default function RoomStatus() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Resumen de estados */}
+        {/* Status summary */}
         <div className="grid grid-cols-3 gap-2">
           {Object.entries(statusConfig).map(([status, config]) => (
             <div key={status} className="text-center p-2 border rounded">
@@ -74,7 +65,7 @@ export default function RoomStatus() {
           ))}
         </div>
 
-        {/* Habitaciones por piso */}
+        {/* Rooms by floor */}
         <div className="space-y-4 max-h-[500px] overflow-y-auto">
           {roomsByFloor && Object.entries(roomsByFloor)
             .sort(([a], [b]) => Number(b) - Number(a))
@@ -86,21 +77,22 @@ export default function RoomStatus() {
                 </h4>
                 <div className="grid grid-cols-4 gap-2">
                   {floorRooms.map((room: any) => {
-                    const config = statusConfig[room.status as keyof typeof statusConfig];
+                    const displayStatus = getDisplayStatus(room);
+                    const config = statusConfig[displayStatus as keyof typeof statusConfig] || statusConfig.AVAILABLE;
                     return (
                       <div
                         key={room.id}
                         className="p-3 border rounded-lg hover:shadow-md transition-shadow cursor-pointer"
                       >
                         <div className="flex items-center justify-between mb-1">
-                          <span className="font-semibold">{room.room_number}</span>
+                          <span className="font-semibold">{room.number}</span>
                           <div className={`w-2 h-2 rounded-full ${config.color}`} />
                         </div>
                         <p className="text-xs text-muted-foreground truncate">
-                          {room.room_types?.name}
+                          {room.room_type?.name}
                         </p>
-                        <Badge 
-                          variant="outline" 
+                        <Badge
+                          variant="outline"
                           className="text-xs mt-1 w-full justify-center"
                         >
                           {config.label}

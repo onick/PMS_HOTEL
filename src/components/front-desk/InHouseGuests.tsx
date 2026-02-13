@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,6 @@ import {
   Calendar,
   Mail,
   Phone,
-  CreditCard,
   Home,
   Clock,
   DollarSign,
@@ -33,95 +32,41 @@ import {
 import { toast } from "sonner";
 import FolioDetails from "@/components/billing/FolioDetails";
 
-export default function InHouseGuests({ hotelId }: { hotelId: string }) {
+export default function InHouseGuests() {
+  const queryClient = useQueryClient();
   const [selectedGuest, setSelectedGuest] = useState<any>(null);
-  const [checkingOut, setCheckingOut] = useState(false);
   const [showFolioDialog, setShowFolioDialog] = useState(false);
 
-  const { data: inHouse, refetch } = useQuery({
-    queryKey: ["in-house-guests", hotelId],
-    enabled: !!hotelId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("reservations")
-        .select(`
-          *,
-          room_types (name),
-          rooms (room_number),
-          folios (
-            id,
-            balance_cents,
-            currency,
-            reservations (
-              id,
-              customer,
-              check_in,
-              check_out,
-              room_types (name)
-            )
-          )
-        `)
-        .eq("hotel_id", hotelId)
-        .eq("status", "CHECKED_IN")
-        .order("check_out", { ascending: true });
-
-      if (error) {
-        console.error("Error fetching in-house guests:", error);
-        throw error;
-      }
-      return data || [];
-    },
+  const { data: inHouseRes } = useQuery({
+    queryKey: ["in-house-guests"],
+    queryFn: () => api.getInHouseGuests(),
   });
 
-  const handleCheckOut = async () => {
-    if (!selectedGuest) return;
+  const inHouse = inHouseRes?.data || [];
 
-    // Check if there's an outstanding balance
-    const folio = selectedGuest.folios?.[0];
-    if (folio && folio.balance_cents > 0) {
-      toast.error(`No se puede hacer check-out. El huésped tiene un balance pendiente de ${(folio.balance_cents / 100).toFixed(2)} ${folio.currency}`);
-      return;
-    }
+  const checkOutMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedGuest) return;
 
-    setCheckingOut(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (!session) {
-        throw new Error("No hay sesión activa");
+      const folio = selectedGuest.folio;
+      if (folio && folio.balance_cents > 0) {
+        throw new Error(`No se puede hacer check-out. Balance pendiente de $${(folio.balance_cents / 100).toFixed(2)}`);
       }
 
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/check-out`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({
-            reservationId: selectedGuest.id,
-          }),
-        }
-      );
-
-      const responseData = await response.json();
-
-      if (!response.ok) {
-        throw new Error(responseData.error || "Error al realizar check-out");
-      }
-
+      return api.checkOut(selectedGuest.id);
+    },
+    onSuccess: () => {
       toast.success("Check-out realizado exitosamente. Habitación lista para limpieza.");
       setSelectedGuest(null);
-      refetch();
-    } catch (error: any) {
-      console.error("Check-out error:", error);
+      queryClient.invalidateQueries({ queryKey: ["in-house-guests"] });
+      queryClient.invalidateQueries({ queryKey: ["today-departures"] });
+      queryClient.invalidateQueries({ queryKey: ["rooms-status-grid"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
+    },
+    onError: (error: any) => {
       toast.error(error.message || "Error al realizar check-out");
-    } finally {
-      setCheckingOut(false);
-    }
-  };
+    },
+  });
 
   const formatCurrency = (cents: number, currency: string = "DOP") => {
     return new Intl.NumberFormat("es-DO", {
@@ -146,37 +91,25 @@ export default function InHouseGuests({ hotelId }: { hotelId: string }) {
         ) : (
           <div className="space-y-3 max-h-[600px] overflow-y-auto">
             {inHouse.map((reservation: any) => {
-              const roomNumber = reservation.rooms?.room_number || "Sin asignar";
+              const roomNumber = reservation.units?.[0]?.room?.number || "Sin asignar";
               const nightsRemaining = Math.ceil(
-                (new Date(reservation.check_out).getTime() - new Date().getTime()) /
+                (new Date(reservation.check_out_date).getTime() - new Date().getTime()) /
                 (1000 * 60 * 60 * 24)
               );
-              const folio = reservation.folios?.[0];
+              const folio = reservation.folio;
               const balance = folio ? folio.balance_cents / 100 : 0;
 
               return (
                 <GuestListItem
                   key={reservation.id}
                   id={reservation.id}
-                  guestName={reservation.customer.name}
+                  guestName={reservation.guest?.full_name || `${reservation.guest?.first_name || ""} ${reservation.guest?.last_name || ""}`}
                   roomNumber={roomNumber}
-                  guestsCount={reservation.guests}
-                  roomType={reservation.room_types?.name || "Standard"}
-                  date={formatDate(reservation.check_out)}
+                  guestsCount={reservation.total_adults + (reservation.total_children || 0)}
+                  roomType={reservation.units?.[0]?.room_type?.name || "Standard"}
+                  date={formatDate(reservation.check_out_date)}
                   status={reservation.status}
-                  type="departure" // Using 'departure' style for in-house as it fits (blue/neutral) or I could add a 'stay' type. Let's stick to existing types or abuse 'arrival'/'departure'. Actually 'departure' style (amber) might not be perfect. 
-                  // Let's check GuestListItem styles. 
-                  // CONFIRMED (arrival) -> Emerald. 
-                  // CHECKED_IN (in-house) -> Blue. 
-                  // The 'type' prop in GuestListItem controls the avatar background:
-                  // type === "arrival" ? "bg-emerald-100..." : "bg-amber-100..."
-                  // I might want to update GuestListItem to support "in-house" or just use one of them.
-                  // Let's use 'arrival' (Emerald) since they are in the hotel (positive). Or maybe I should update GuestListItem to handle 'in-house' better?
-                  // Providing 'arrival' for now to get the green/emerald theme which feels 'active'.
-                  // Wait, check InHouseGuests original UI. It didn't have a strong color coding.
-                  // GuestListItem 'status' prop drives the badge color.
-                  // 'type' drives Avatar color.
-                  // I'll use 'arrival' for now.
+                  type="departure"
                   onAction={() => setSelectedGuest(reservation)}
                   actionLabel="Ver detalles"
                   secondaryAction={
@@ -220,16 +153,18 @@ export default function InHouseGuests({ hotelId }: { hotelId: string }) {
                 <div className="bg-muted/50 rounded-lg p-4 space-y-2">
                   <div className="flex items-center gap-2">
                     <User className="h-4 w-4 text-muted-foreground" />
-                    <span className="font-medium">{selectedGuest.customer.name}</span>
+                    <span className="font-medium">
+                      {selectedGuest.guest?.full_name || `${selectedGuest.guest?.first_name || ""} ${selectedGuest.guest?.last_name || ""}`}
+                    </span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Mail className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{selectedGuest.customer.email}</span>
+                    <span className="text-sm">{selectedGuest.guest?.email || "—"}</span>
                   </div>
-                  {selectedGuest.customer.phone && (
+                  {selectedGuest.guest?.phone && (
                     <div className="flex items-center gap-2">
                       <Phone className="h-4 w-4 text-muted-foreground" />
-                      <span className="text-sm">{selectedGuest.customer.phone}</span>
+                      <span className="text-sm">{selectedGuest.guest.phone}</span>
                     </div>
                   )}
                 </div>
@@ -248,16 +183,16 @@ export default function InHouseGuests({ hotelId }: { hotelId: string }) {
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Número:</span>
                       <span className="font-medium">
-                        {selectedGuest.rooms?.room_number || "Sin asignar"}
+                        {selectedGuest.units?.[0]?.room?.number || "Sin asignar"}
                       </span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Tipo:</span>
-                      <span className="font-medium">{selectedGuest.room_types?.name}</span>
+                      <span className="font-medium">{selectedGuest.units?.[0]?.room_type?.name || "—"}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Huéspedes:</span>
-                      <span className="font-medium">{selectedGuest.guests}</span>
+                      <span className="font-medium">{selectedGuest.total_adults + (selectedGuest.total_children || 0)}</span>
                     </div>
                   </div>
                 </div>
@@ -270,16 +205,16 @@ export default function InHouseGuests({ hotelId }: { hotelId: string }) {
                   <div className="space-y-2">
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Check-in:</span>
-                      <span className="font-medium">{formatDate(selectedGuest.check_in)}</span>
+                      <span className="font-medium">{formatDate(selectedGuest.check_in_date)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Check-out:</span>
-                      <span className="font-medium">{formatDate(selectedGuest.check_out)}</span>
+                      <span className="font-medium">{formatDate(selectedGuest.check_out_date)}</span>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-sm text-muted-foreground">Noches restantes:</span>
                       <span className="font-medium">
-                        {Math.ceil((new Date(selectedGuest.check_out).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))}
+                        {Math.ceil((new Date(selectedGuest.check_out_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24))}
                       </span>
                     </div>
                   </div>
@@ -295,16 +230,15 @@ export default function InHouseGuests({ hotelId }: { hotelId: string }) {
                   Balance del Folio
                 </h3>
                 <div className="bg-muted/50 rounded-lg p-4">
-                  {selectedGuest.folios?.[0] ? (
+                  {selectedGuest.folio ? (
                     <div className="flex justify-between items-center">
                       <span className="text-sm text-muted-foreground">Balance actual:</span>
                       <div className="flex items-center gap-1">
                         <DollarSign className="h-4 w-4" />
-                        <span className={`font-bold text-lg ${selectedGuest.folios[0].balance_cents > 0 ? "text-destructive" : "text-success"
-                          }`}>
+                        <span className={`font-bold text-lg ${selectedGuest.folio.balance_cents > 0 ? "text-destructive" : "text-success"}`}>
                           {formatCurrency(
-                            selectedGuest.folios[0].balance_cents,
-                            selectedGuest.folios[0].currency
+                            selectedGuest.folio.balance_cents,
+                            selectedGuest.currency || "DOP"
                           )}
                         </span>
                       </div>
@@ -313,14 +247,14 @@ export default function InHouseGuests({ hotelId }: { hotelId: string }) {
                     <p className="text-sm text-muted-foreground text-center">No hay folio asociado</p>
                   )}
 
-                  {selectedGuest.folios?.[0]?.balance_cents > 0 && (
+                  {selectedGuest.folio?.balance_cents > 0 && (
                     <div className="mt-3 flex items-start gap-2 text-warning text-sm">
                       <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
                       <p>El huésped debe saldar el balance antes de realizar check-out</p>
                     </div>
                   )}
 
-                  {selectedGuest.folios?.[0] && (
+                  {selectedGuest.folio && (
                     <Button
                       onClick={() => setShowFolioDialog(true)}
                       className="w-full mt-3"
@@ -343,21 +277,21 @@ export default function InHouseGuests({ hotelId }: { hotelId: string }) {
                 </h3>
                 <div className="space-y-2 text-sm">
                   <div className="flex justify-between">
-                    <span className="text-muted-foreground">ID de Reserva:</span>
-                    <span className="font-mono">{selectedGuest.id.slice(0, 8)}</span>
+                    <span className="text-muted-foreground">Código de Reserva:</span>
+                    <span className="font-mono">{selectedGuest.confirmation_code || "—"}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Check-in realizado:</span>
                     <span>
-                      {selectedGuest.metadata?.checked_in_at
-                        ? formatDate(selectedGuest.metadata.checked_in_at)
+                      {selectedGuest.checked_in_at
+                        ? formatDate(selectedGuest.checked_in_at)
                         : "N/A"}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Total estadía:</span>
                     <span>
-                      {formatCurrency(selectedGuest.total_amount_cents, selectedGuest.currency)}
+                      {formatCurrency(selectedGuest.total_cents, selectedGuest.currency || "DOP")}
                     </span>
                   </div>
                 </div>
@@ -374,25 +308,25 @@ export default function InHouseGuests({ hotelId }: { hotelId: string }) {
             </Button>
             <Button
               variant="destructive"
-              onClick={handleCheckOut}
-              disabled={checkingOut || (selectedGuest?.folios?.[0]?.balance_cents > 0)}
+              onClick={() => checkOutMutation.mutate()}
+              disabled={checkOutMutation.isPending || (selectedGuest?.folio?.balance_cents > 0)}
               className="flex items-center gap-2"
             >
               <LogOut className="h-4 w-4" />
-              {checkingOut ? "Procesando..." : "Realizar Check-out"}
+              {checkOutMutation.isPending ? "Procesando..." : "Realizar Check-out"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
       {/* Folio Management Dialog */}
-      {selectedGuest?.folios?.[0] && (
+      {selectedGuest?.folio && (
         <FolioDetails
-          folio={selectedGuest.folios[0]}
+          folio={selectedGuest.folio}
           open={showFolioDialog}
           onClose={() => {
             setShowFolioDialog(false);
-            refetch(); // Refresh guest data after folio changes
+            queryClient.invalidateQueries({ queryKey: ["in-house-guests"] });
           }}
         />
       )}

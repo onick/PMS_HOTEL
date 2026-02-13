@@ -154,7 +154,7 @@ class ApiClient {
         return this.request<{ message: string }>(`/rooms/${id}`, { method: 'DELETE' });
     }
     async getStatusGrid() {
-        return this.request<{ data: any }>('/rooms/status-grid');
+        return this.request<{ rooms: any[]; summary: any }>('/rooms/status-grid');
     }
     async markRoomClean(id: number) {
         return this.request<{ data: any }>(`/rooms/${id}/mark-clean`, { method: 'POST' });

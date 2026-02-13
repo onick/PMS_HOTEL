@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { LogOut, User, Calendar, DollarSign } from "lucide-react";
+import { LogOut, DollarSign } from "lucide-react";
 import { formatDate } from "@/lib/date-utils";
 import { toast } from "sonner";
 import {
@@ -17,78 +17,40 @@ import {
 } from "@/components/ui/dialog";
 import { GuestListItem } from "./common/GuestListItem";
 
-export default function TodayDepartures({ hotelId }: { hotelId: string }) {
+export default function TodayDepartures() {
+  const queryClient = useQueryClient();
   const [selectedReservation, setSelectedReservation] = useState<any>(null);
 
-  const today = new Date().toISOString().split("T")[0];
-
-  const { data: departures, refetch } = useQuery({
-    queryKey: ["today-departures", hotelId],
-    enabled: !!hotelId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("reservations")
-        .select(`
-          *,
-          room_types (name),
-          folios (balance_cents)
-        `)
-        .eq("hotel_id", hotelId)
-        .eq("check_out", today)
-        .eq("status", "CHECKED_IN")
-        .order("created_at", { ascending: true });
-
-      if (error) throw error;
-      return data || [];
-    },
+  const { data: departuresRes } = useQuery({
+    queryKey: ["today-departures"],
+    queryFn: () => api.getTodayDepartures(),
   });
 
-  const handleCheckOut = async () => {
-    if (!selectedReservation) return;
+  const departures = departuresRes?.data || [];
 
-    // Verificar si hay balance pendiente
-    const balance = selectedReservation.folios?.[0]?.balance_cents || 0;
-    if (balance > 0) {
-      toast.error(`No se puede hacer check-out con balance pendiente de RD$${(balance / 100).toFixed(2)}`);
-      return;
-    }
+  const checkOutMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedReservation) return;
 
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-
-      if (!session) {
-        throw new Error("No hay sesión activa");
+      const balance = selectedReservation.folio?.balance_cents || 0;
+      if (balance > 0) {
+        throw new Error(`No se puede hacer check-out con balance pendiente de $${(balance / 100).toFixed(2)}`);
       }
 
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/check-out`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-            'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({
-            reservationId: selectedReservation.id,
-          }),
-        }
-      );
-
-      const responseData = await response.json();
-
-      if (!response.ok) {
-        throw new Error(responseData.error || "Error al realizar check-out");
-      }
-
+      return api.checkOut(selectedReservation.id);
+    },
+    onSuccess: () => {
       toast.success("Check-out realizado exitosamente. Habitación lista para limpieza.");
       setSelectedReservation(null);
-      refetch();
-    } catch (error: any) {
-      console.error("Check-out error:", error);
+      queryClient.invalidateQueries({ queryKey: ["today-departures"] });
+      queryClient.invalidateQueries({ queryKey: ["in-house-guests"] });
+      queryClient.invalidateQueries({ queryKey: ["rooms-status-grid"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
+    },
+    onError: (error: any) => {
       toast.error(error.message || "Error al realizar check-out");
-    }
-  };
+    },
+  });
 
   return (
     <>
@@ -107,18 +69,19 @@ export default function TodayDepartures({ hotelId }: { hotelId: string }) {
           ) : (
             <div className="space-y-3">
               {departures.map((reservation: any) => {
-                const balance = reservation.folios?.[0]?.balance_cents || 0;
+                const balance = reservation.folio?.balance_cents || 0;
                 const hasBalance = balance > 0;
+                const roomNumber = reservation.units?.[0]?.room?.number;
 
                 return (
                   <GuestListItem
                     key={reservation.id}
                     id={reservation.id}
-                    guestName={reservation.customer.name}
-                    roomNumber={reservation.metadata?.room_number}
-                    guestsCount={reservation.guests}
-                    roomType={reservation.room_types?.name || "Standard"}
-                    date={formatDate(reservation.check_out)}
+                    guestName={reservation.guest?.full_name || `${reservation.guest?.first_name || ""} ${reservation.guest?.last_name || ""}`}
+                    roomNumber={roomNumber}
+                    guestsCount={reservation.total_adults + (reservation.total_children || 0)}
+                    roomType={reservation.units?.[0]?.room_type?.name || "Standard"}
+                    date={formatDate(reservation.check_out_date)}
                     status={reservation.status}
                     type="departure"
                     onAction={() => setSelectedReservation(reservation)}
@@ -150,28 +113,30 @@ export default function TodayDepartures({ hotelId }: { hotelId: string }) {
             <div className="space-y-4">
               <div>
                 <p className="text-sm font-medium mb-1">Huésped</p>
-                <p className="text-lg">{selectedReservation.customer.name}</p>
+                <p className="text-lg">
+                  {selectedReservation.guest?.full_name || `${selectedReservation.guest?.first_name || ""} ${selectedReservation.guest?.last_name || ""}`}
+                </p>
               </div>
 
               <div>
                 <p className="text-sm font-medium mb-1">Habitación</p>
-                <p>{selectedReservation.metadata?.room_number || "N/A"}</p>
+                <p>{selectedReservation.units?.[0]?.room?.number || "N/A"}</p>
               </div>
 
               <div>
                 <p className="text-sm font-medium mb-1">Balance</p>
-                <p className={selectedReservation.folios?.[0]?.balance_cents > 0 ? "text-destructive font-semibold" : "text-success"}>
-                  {selectedReservation.folios?.[0]?.balance_cents > 0
-                    ? `Pendiente: $${(selectedReservation.folios[0].balance_cents / 100).toFixed(2)}`
+                <p className={selectedReservation.folio?.balance_cents > 0 ? "text-destructive font-semibold" : "text-success"}>
+                  {selectedReservation.folio?.balance_cents > 0
+                    ? `Pendiente: $${(selectedReservation.folio.balance_cents / 100).toFixed(2)}`
                     : "Cuenta saldada"
                   }
                 </p>
               </div>
 
-              {selectedReservation.folios?.[0]?.balance_cents > 0 && (
+              {selectedReservation.folio?.balance_cents > 0 && (
                 <div className="p-3 bg-warning/10 border border-warning rounded-lg">
                   <p className="text-sm text-warning-foreground">
-                    ⚠️ El huésped tiene un balance pendiente. Asegúrate de resolver el pago antes de completar el check-out.
+                    El huésped tiene un balance pendiente. Asegúrate de resolver el pago antes de completar el check-out.
                   </p>
                 </div>
               )}
@@ -182,8 +147,12 @@ export default function TodayDepartures({ hotelId }: { hotelId: string }) {
             <Button variant="outline" onClick={() => setSelectedReservation(null)}>
               Cancelar
             </Button>
-            <Button onClick={handleCheckOut} className="bg-front-desk hover:bg-front-desk/90">
-              Confirmar Check-out
+            <Button
+              onClick={() => checkOutMutation.mutate()}
+              disabled={checkOutMutation.isPending}
+              className="bg-front-desk hover:bg-front-desk/90"
+            >
+              {checkOutMutation.isPending ? "Procesando..." : "Confirmar Check-out"}
             </Button>
           </DialogFooter>
         </DialogContent>

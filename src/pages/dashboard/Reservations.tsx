@@ -36,7 +36,7 @@ export default function Reservations() {
             Administra todas las reservas del hotel con filtros avanzados
           </p>
         </div>
-        <NewReservationDialog hotelId={hotel.id} />
+        <NewReservationDialog />
       </div>
 
       {/* Estadísticas rápidas */}

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import {
   Dialog,
   DialogContent,
@@ -22,20 +22,18 @@ import {
 import { UserPlus } from "lucide-react";
 import { toast } from "sonner";
 
-interface WalkInDialogProps {
-  hotelId: string;
-}
-
-export default function WalkInDialog({ hotelId }: WalkInDialogProps) {
+export default function WalkInDialog() {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const [formData, setFormData] = useState({
-    customerName: "",
-    customerEmail: "",
-    customerPhone: "",
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
     roomTypeId: "",
     roomId: "",
+    ratePlanId: "",
     adults: "2",
     children: "0",
     infants: "0",
@@ -43,156 +41,79 @@ export default function WalkInDialog({ hotelId }: WalkInDialogProps) {
     paymentMethod: "cash",
   });
 
-  const today = new Date().toISOString().split("T")[0];
-
   // Get room types
-  const { data: roomTypes } = useQuery({
-    queryKey: ["room-types", hotelId],
+  const { data: roomTypesRes } = useQuery({
+    queryKey: ["room-types"],
     enabled: open,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("room_types")
-        .select("*")
-        .eq("hotel_id", hotelId)
-        .order("name");
-
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () => api.getRoomTypes(),
   });
+
+  const roomTypes = roomTypesRes?.data || [];
+
+  // Get rate plans
+  const { data: ratePlansRes } = useQuery({
+    queryKey: ["rate-plans"],
+    enabled: open,
+    queryFn: () => api.getRatePlans(),
+  });
+
+  const ratePlans = ratePlansRes?.data || [];
 
   // Get available rooms for selected room type
-  const { data: availableRooms } = useQuery({
-    queryKey: ["available-rooms", hotelId, formData.roomTypeId],
+  const { data: roomsRes } = useQuery({
+    queryKey: ["available-rooms-walkin", formData.roomTypeId],
     enabled: open && !!formData.roomTypeId,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("rooms")
-        .select("*")
-        .eq("hotel_id", hotelId)
-        .eq("room_type_id", formData.roomTypeId)
-        .eq("status", "AVAILABLE")
-        .order("room_number");
-
-      if (error) throw error;
-      return data;
-    },
+    queryFn: () =>
+      api.getRooms({
+        room_type_id: formData.roomTypeId,
+        available_only: "1",
+      }),
   });
+
+  const availableRooms = roomsRes?.data || [];
 
   const walkInMutation = useMutation({
     mutationFn: async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error("No session");
-
       // Calculate check-out date
+      const today = new Date().toISOString().split("T")[0];
       const checkOut = new Date(today);
       checkOut.setDate(checkOut.getDate() + parseInt(formData.nights));
       const checkOutStr = checkOut.toISOString().split("T")[0];
 
-      // Step 1: Create reservation
-      const createReservationResponse = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-reservation`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
+      return api.walkIn({
+        guest: {
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          email: formData.email || undefined,
+          phone: formData.phone || undefined,
+        },
+        check_in_date: today,
+        check_out_date: checkOutStr,
+        units: [
+          {
+            room_type_id: Number(formData.roomTypeId),
+            rate_plan_id: Number(formData.ratePlanId),
+            adults: parseInt(formData.adults),
           },
-          body: JSON.stringify({
-            idempotencyKey: `walk-in-${Date.now()}-${Math.random()}`,
-            hotelId,
-            roomTypeId: formData.roomTypeId,
-            checkIn: today,
-            checkOut: checkOutStr,
-            guests: parseInt(formData.adults) + parseInt(formData.children) + parseInt(formData.infants),
-            guestBreakdown: {
-              adults: parseInt(formData.adults),
-              children: parseInt(formData.children),
-              infants: parseInt(formData.infants),
-            },
-            customer: {
-              name: formData.customerName,
-              email: formData.customerEmail,
-              phone: formData.customerPhone,
-            },
-            ratePlanId: "c4444444-4444-4444-4444-444444444444", // Default rate plan
-            currency: "DOP",
-            payment: {
-              strategy: "pay_at_hotel",
-            },
-            metadata: {
-              walkIn: true,
-              paymentMethod: formData.paymentMethod,
-            },
-          }),
-        }
-      );
-
-      const reservationData = await createReservationResponse.json();
-      if (!createReservationResponse.ok) {
-        throw new Error(reservationData.error || "Error creating reservation");
-      }
-
-      // Step 2: Confirm payment (since it's walk-in, we assume payment is handled)
-      const confirmResponse = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/confirm-reservation-payment`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({
-            reservationId: reservationData.reservationId,
-            paymentMethod: formData.paymentMethod,
-          }),
-        }
-      );
-
-      if (!confirmResponse.ok) {
-        const confirmError = await confirmResponse.json();
-        throw new Error(confirmError.error || "Error confirming payment");
-      }
-
-      // Step 3: Check-in immediately
-      const checkInResponse = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/check-in`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${session.access_token}`,
-            apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-          },
-          body: JSON.stringify({
-            reservationId: reservationData.reservationId,
-            roomId: formData.roomId,
-            notes: "Walk-in guest",
-          }),
-        }
-      );
-
-      if (!checkInResponse.ok) {
-        const checkInError = await checkInResponse.json();
-        throw new Error(checkInError.error || "Error during check-in");
-      }
-
-      return await checkInResponse.json();
+        ],
+        room_assignments: [Number(formData.roomId)],
+      });
     },
     onSuccess: () => {
       toast.success("Walk-in procesado exitosamente. Huésped registrado y en habitación.");
       queryClient.invalidateQueries({ queryKey: ["today-arrivals"] });
       queryClient.invalidateQueries({ queryKey: ["in-house-guests"] });
-      queryClient.invalidateQueries({ queryKey: ["rooms-status"] });
+      queryClient.invalidateQueries({ queryKey: ["rooms-status-grid"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
       setOpen(false);
       setFormData({
-        customerName: "",
-        customerEmail: "",
-        customerPhone: "",
+        firstName: "",
+        lastName: "",
+        email: "",
+        phone: "",
         roomTypeId: "",
         roomId: "",
+        ratePlanId: "",
         adults: "2",
         children: "0",
         infants: "0",
@@ -208,13 +129,18 @@ export default function WalkInDialog({ hotelId }: WalkInDialogProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.customerName || !formData.customerEmail) {
-      toast.error("Por favor completa nombre y email del huésped");
+    if (!formData.firstName || !formData.lastName) {
+      toast.error("Por favor completa nombre y apellido del huésped");
       return;
     }
 
     if (!formData.roomTypeId || !formData.roomId) {
       toast.error("Por favor selecciona tipo de habitación y habitación específica");
+      return;
+    }
+
+    if (!formData.ratePlanId) {
+      toast.error("Por favor selecciona un plan de tarifa");
       return;
     }
 
@@ -241,35 +167,46 @@ export default function WalkInDialog({ hotelId }: WalkInDialogProps) {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
-                <Label htmlFor="customerName">Nombre Completo *</Label>
+                <Label htmlFor="firstName">Nombre *</Label>
                 <Input
-                  id="customerName"
-                  value={formData.customerName}
-                  onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
+                  id="firstName"
+                  value={formData.firstName}
+                  onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
                   required
                 />
               </div>
 
               <div>
-                <Label htmlFor="customerEmail">Email *</Label>
+                <Label htmlFor="lastName">Apellido *</Label>
                 <Input
-                  id="customerEmail"
-                  type="email"
-                  value={formData.customerEmail}
-                  onChange={(e) => setFormData({ ...formData, customerEmail: e.target.value })}
+                  id="lastName"
+                  value={formData.lastName}
+                  onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
                   required
                 />
               </div>
             </div>
 
-            <div>
-              <Label htmlFor="customerPhone">Teléfono</Label>
-              <Input
-                id="customerPhone"
-                type="tel"
-                value={formData.customerPhone}
-                onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value })}
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <Label htmlFor="phone">Teléfono</Label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                />
+              </div>
             </div>
           </div>
 
@@ -358,9 +295,9 @@ export default function WalkInDialog({ hotelId }: WalkInDialogProps) {
                   <SelectValue placeholder="Selecciona tipo de habitación" />
                 </SelectTrigger>
                 <SelectContent>
-                  {roomTypes?.map((rt) => (
-                    <SelectItem key={rt.id} value={rt.id}>
-                      {rt.name} - ${(rt.base_price_cents / 100).toFixed(2)}/noche
+                  {roomTypes.map((rt: any) => (
+                    <SelectItem key={rt.id} value={String(rt.id)}>
+                      {rt.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -375,12 +312,12 @@ export default function WalkInDialog({ hotelId }: WalkInDialogProps) {
                     <SelectValue placeholder="Selecciona habitación" />
                   </SelectTrigger>
                   <SelectContent>
-                    {availableRooms?.length === 0 ? (
+                    {availableRooms.length === 0 ? (
                       <div className="p-2 text-sm text-muted-foreground">No hay habitaciones disponibles</div>
                     ) : (
-                      availableRooms?.map((room) => (
-                        <SelectItem key={room.id} value={room.id}>
-                          Habitación {room.room_number}
+                      availableRooms.map((room: any) => (
+                        <SelectItem key={room.id} value={String(room.id)}>
+                          Habitación {room.number}
                           {room.floor && ` - Piso ${room.floor}`}
                         </SelectItem>
                       ))
@@ -389,22 +326,22 @@ export default function WalkInDialog({ hotelId }: WalkInDialogProps) {
                 </Select>
               </div>
             )}
-          </div>
-
-          {/* Payment Method */}
-          <div className="space-y-4">
-            <h3 className="font-semibold text-sm">Método de Pago</h3>
 
             <div>
-              <Label htmlFor="paymentMethod">Forma de Pago</Label>
-              <Select value={formData.paymentMethod} onValueChange={(value) => setFormData({ ...formData, paymentMethod: value })}>
-                <SelectTrigger id="paymentMethod">
-                  <SelectValue />
+              <Label htmlFor="ratePlanId">Plan de Tarifa *</Label>
+              <Select
+                value={formData.ratePlanId}
+                onValueChange={(value) => setFormData({ ...formData, ratePlanId: value })}
+              >
+                <SelectTrigger id="ratePlanId">
+                  <SelectValue placeholder="Selecciona plan de tarifa" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="cash">Efectivo</SelectItem>
-                  <SelectItem value="card">Tarjeta</SelectItem>
-                  <SelectItem value="transfer">Transferencia</SelectItem>
+                  {ratePlans.map((rp: any) => (
+                    <SelectItem key={rp.id} value={String(rp.id)}>
+                      {rp.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

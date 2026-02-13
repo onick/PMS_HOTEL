@@ -1,155 +1,56 @@
-import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Tag, Percent } from "lucide-react";
-import { supabase, DEMO_MODE } from "@/integrations/supabase/client";
+import { Plus, Percent } from "lucide-react";
 import { toast } from "sonner";
-import { v4 as uuidv4 } from "uuid";
 
-const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
+const NewReservationDialog = () => {
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     checkIn: "",
     checkOut: "",
     adults: "2",
     children: "0",
     infants: "0",
-    customerName: "",
-    customerEmail: "",
-    customerPhone: "",
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
     roomTypeId: "",
-    ratePlanId: "c4444444-4444-4444-4444-444444444444", // BAR (default)
-    promoCode: "",
+    ratePlanId: "",
   });
-  const [promoDiscount, setPromoDiscount] = useState<number>(0);
-  const [promoValidating, setPromoValidating] = useState(false);
-  const [promoApplied, setPromoApplied] = useState(false);
 
-  // Fetch rate plans
-  const { data: ratePlans } = useQuery({
-    queryKey: ["rate-plans", hotelId],
+  // Fetch rate plans from Laravel API
+  const { data: ratePlansRes } = useQuery({
+    queryKey: ["rate-plans"],
     enabled: open,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("rate_plans")
-        .select("*")
-        .eq("hotel_id", hotelId)
-        .eq("is_active", true)
-        .order("name");
-
-      if (error) throw error;
-      return data || [];
-    },
+    queryFn: () => api.getRatePlans(),
   });
 
-  // Fetch room types for price calculation
-  const { data: roomTypes } = useQuery({
-    queryKey: ["room-types", hotelId],
+  const ratePlans = ratePlansRes?.data || [];
+
+  // Fetch room types from Laravel API
+  const { data: roomTypesRes } = useQuery({
+    queryKey: ["room-types"],
     enabled: open,
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("room_types")
-        .select("*")
-        .eq("hotel_id", hotelId)
-        .order("name");
-
-      if (error) throw error;
-      return data || [];
-    },
+    queryFn: () => api.getRoomTypes(),
   });
 
-  // Validate promo code
-  const validatePromoCode = async () => {
-    if (!formData.promoCode.trim()) {
-      toast.error("Por favor ingrese un código promocional");
-      return;
-    }
+  const roomTypes = roomTypesRes?.data || [];
 
-    setPromoValidating(true);
-    try {
-      const { data, error } = await supabase
-        .from("promo_codes")
-        .select("*")
-        .eq("code", formData.promoCode.toUpperCase())
-        .eq("hotel_id", hotelId)
-        .eq("is_active", true)
-        .single();
-
-      if (error || !data) {
-        toast.error("Código promocional no válido");
-        setPromoDiscount(0);
-        setPromoApplied(false);
-        return;
-      }
-
-      // Validate dates
-      const now = new Date();
-      if (data.valid_from && new Date(data.valid_from) > now) {
-        toast.error("Este código aún no está activo");
-        setPromoDiscount(0);
-        setPromoApplied(false);
-        return;
-      }
-
-      if (data.valid_until && new Date(data.valid_until) < now) {
-        toast.error("Este código ha expirado");
-        setPromoDiscount(0);
-        setPromoApplied(false);
-        return;
-      }
-
-      // Validate minimum nights
-      if (data.min_nights && formData.checkIn && formData.checkOut) {
-        const nights = Math.ceil(
-          (new Date(formData.checkOut).getTime() - new Date(formData.checkIn).getTime()) /
-          (1000 * 60 * 60 * 24)
-        );
-        if (nights < data.min_nights) {
-          toast.error(`Este código requiere mínimo ${data.min_nights} noches`);
-          setPromoDiscount(0);
-          setPromoApplied(false);
-          return;
-        }
-      }
-
-      // Check max uses
-      if (data.max_uses && data.times_used >= data.max_uses) {
-        toast.error("Este código ha alcanzado su límite de usos");
-        setPromoDiscount(0);
-        setPromoApplied(false);
-        return;
-      }
-
-      // Apply discount
-      const discount = data.discount_type === "percentage"
-        ? data.discount_value
-        : data.discount_value;
-
-      setPromoDiscount(discount);
-      setPromoApplied(true);
-      toast.success(`¡Código aplicado! ${data.discount_type === "percentage" ? `${discount}% de descuento` : `RD$${discount.toFixed(2)} de descuento`}`);
-    } catch (error: any) {
-      console.error("Error validating promo code:", error);
-      toast.error("Error al validar código promocional");
-      setPromoDiscount(0);
-      setPromoApplied(false);
-    } finally {
-      setPromoValidating(false);
-    }
-  };
-
-  // Calculate price preview
+  // Calculate price preview (client-side estimation)
   const calculatePrice = () => {
-    if (!formData.checkIn || !formData.checkOut || !formData.roomTypeId || !roomTypes) {
+    if (!formData.checkIn || !formData.checkOut || !formData.roomTypeId || !roomTypes.length) {
       return null;
     }
 
-    const roomType = roomTypes.find(rt => rt.id === formData.roomTypeId);
+    const roomType = roomTypes.find((rt: any) => String(rt.id) === formData.roomTypeId);
     if (!roomType) return null;
 
     const nights = Math.ceil(
@@ -157,136 +58,68 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
       (1000 * 60 * 60 * 24)
     );
 
-    // Base price
-    const basePrice = (roomType.base_price_cents / 100) * nights;
+    if (nights <= 0) return null;
 
-    // Rate plan discount
-    const selectedRatePlan = ratePlans?.find(rp => rp.id === formData.ratePlanId);
+    const basePriceCents = roomType.base_rate_cents || roomType.base_price_cents || 0;
+    const basePrice = (basePriceCents / 100) * nights;
+
+    // Rate plan adjustment
+    const selectedRatePlan = ratePlans.find((rp: any) => String(rp.id) === formData.ratePlanId);
     let ratePlanDiscount = 0;
-
-    if (selectedRatePlan) {
-      if (selectedRatePlan.modifier_type === 'percentage') {
-        ratePlanDiscount = (basePrice * selectedRatePlan.modifier_value) / 100;
-      }
+    if (selectedRatePlan?.modifier_type === "percentage" && selectedRatePlan?.modifier_value) {
+      ratePlanDiscount = (basePrice * selectedRatePlan.modifier_value) / 100;
     }
 
-    const priceAfterRatePlan = basePrice - ratePlanDiscount;
+    const subtotal = basePrice - ratePlanDiscount;
+    const tax = subtotal * 0.18;
+    const total = subtotal + tax;
 
-    // Promo code discount
-    let promoCodeDiscount = 0;
-    if (promoApplied && promoDiscount > 0) {
-      // For now assuming percentage, could be extended for fixed amount
-      promoCodeDiscount = (priceAfterRatePlan * promoDiscount) / 100;
-    }
-
-    const priceAfterPromo = priceAfterRatePlan - promoCodeDiscount;
-
-    // Tax (ITBIS 18%)
-    const tax = priceAfterPromo * 0.18;
-
-    const total = priceAfterPromo + tax;
-
-    return {
-      basePrice,
-      nights,
-      ratePlanDiscount,
-      promoCodeDiscount,
-      subtotal: priceAfterPromo,
-      tax,
-      total,
-    };
+    return { basePrice, nights, ratePlanDiscount, subtotal, tax, total };
   };
 
   const pricePreview = calculatePrice();
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
-    try {
-      // Validate dates
+  const createReservationMutation = useMutation({
+    mutationFn: async () => {
       const checkInDate = new Date(formData.checkIn);
       const checkOutDate = new Date(formData.checkOut);
 
       if (checkInDate >= checkOutDate) {
-        toast.error("La fecha de check-out debe ser posterior a la fecha de check-in");
-        setLoading(false);
-        return;
+        throw new Error("La fecha de check-out debe ser posterior a la fecha de check-in");
       }
 
-      const idempotencyKey = uuidv4();
+      // Step 1: Create guest
+      const guestRes = await api.createGuest({
+        first_name: formData.firstName,
+        last_name: formData.lastName,
+        email: formData.email || undefined,
+        phone: formData.phone || undefined,
+      });
 
-      const requestBody = {
-        idempotencyKey,
-        hotelId,
-        roomTypeId: formData.roomTypeId || "b2222222-2222-2222-2222-222222222222",
-        checkIn: formData.checkIn,
-        checkOut: formData.checkOut,
-        guests: parseInt(formData.adults) + parseInt(formData.children) + parseInt(formData.infants),
-        guestBreakdown: {
-          adults: parseInt(formData.adults),
-          children: parseInt(formData.children),
-          infants: parseInt(formData.infants),
-        },
-        customer: {
-          name: formData.customerName,
-          email: formData.customerEmail,
-          phone: formData.customerPhone,
-        },
-        ratePlanId: formData.ratePlanId,
-        promoCode: promoApplied ? formData.promoCode : undefined,
-        currency: "DOP",
-        payment: {
-          strategy: "pay_at_hotel",
-        },
-      };
+      const guestId = guestRes.data.id;
 
-      console.log("Creating reservation with data:", requestBody);
-
-      let data: any;
-
-      if (DEMO_MODE) {
-        // In demo mode, use the mock functions.invoke
-        const { data: fnData, error: fnError } = await supabase.functions.invoke(
-          'create-reservation',
-          { body: requestBody }
-        );
-        if (fnError) throw new Error(fnError.message || "Error al crear reserva");
-        data = fnData;
-      } else {
-        // Get auth session for authorization header
-        const { data: { session } } = await supabase.auth.getSession();
-
-        if (!session) {
-          throw new Error("No hay sesión activa");
-        }
-
-        const response = await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-reservation`,
+      // Step 2: Create reservation with guest_id
+      return api.createReservation({
+        guest_id: guestId,
+        check_in_date: formData.checkIn,
+        check_out_date: formData.checkOut,
+        source: "DIRECT",
+        units: [
           {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${session.access_token}`,
-              'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY,
-            },
-            body: JSON.stringify(requestBody),
-          }
-        );
-
-        const responseData = await response.json();
-        console.log("Create reservation response:", { status: response.status, data: responseData });
-
-        if (!response.ok) {
-          const errorMessage = responseData.error || "Error al crear reserva";
-          console.error("Function returned error:", errorMessage);
-          throw new Error(errorMessage);
-        }
-
-        data = responseData;
-      }
-
+            room_type_id: Number(formData.roomTypeId),
+            rate_plan_id: Number(formData.ratePlanId),
+            adults: parseInt(formData.adults),
+            children: parseInt(formData.children),
+            infants: parseInt(formData.infants),
+          },
+        ],
+      });
+    },
+    onSuccess: () => {
       toast.success("Reserva creada exitosamente");
+      queryClient.invalidateQueries({ queryKey: ["reservations"] });
+      queryClient.invalidateQueries({ queryKey: ["today-arrivals"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-metrics"] });
       setOpen(false);
       setFormData({
         checkIn: "",
@@ -294,21 +127,33 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
         adults: "2",
         children: "0",
         infants: "0",
-        customerName: "",
-        customerEmail: "",
-        customerPhone: "",
+        firstName: "",
+        lastName: "",
+        email: "",
+        phone: "",
         roomTypeId: "",
-        ratePlanId: "c4444444-4444-4444-4444-444444444444",
-        promoCode: "",
+        ratePlanId: "",
       });
-      setPromoDiscount(0);
-      setPromoApplied(false);
-    } catch (error: any) {
-      console.error("Error creating reservation:", error);
+    },
+    onError: (error: any) => {
       toast.error(error.message || "Error al crear reserva");
-    } finally {
-      setLoading(false);
+    },
+  });
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!formData.firstName || !formData.lastName) {
+      toast.error("Por favor completa nombre y apellido del huésped");
+      return;
     }
+
+    if (!formData.roomTypeId || !formData.ratePlanId) {
+      toast.error("Por favor selecciona tipo de habitación y plan de tarifa");
+      return;
+    }
+
+    createReservationMutation.mutate();
   };
 
   return (
@@ -319,7 +164,7 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
           Nueva Reserva
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Crear Nueva Reserva</DialogTitle>
           <DialogDescription>
@@ -334,7 +179,7 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
                 id="checkIn"
                 type="date"
                 required
-                min={new Date().toISOString().split('T')[0]}
+                min={new Date().toISOString().split("T")[0]}
                 value={formData.checkIn}
                 onChange={(e) => setFormData({ ...formData, checkIn: e.target.value })}
               />
@@ -345,7 +190,7 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
                 id="checkOut"
                 type="date"
                 required
-                min={formData.checkIn || new Date().toISOString().split('T')[0]}
+                min={formData.checkIn || new Date().toISOString().split("T")[0]}
                 value={formData.checkOut}
                 onChange={(e) => setFormData({ ...formData, checkOut: e.target.value })}
               />
@@ -360,12 +205,9 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="1">1</SelectItem>
-                  <SelectItem value="2">2</SelectItem>
-                  <SelectItem value="3">3</SelectItem>
-                  <SelectItem value="4">4</SelectItem>
-                  <SelectItem value="5">5</SelectItem>
-                  <SelectItem value="6">6</SelectItem>
+                  {[1, 2, 3, 4, 5, 6].map((n) => (
+                    <SelectItem key={n} value={n.toString()}>{n}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -376,11 +218,9 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="0">0</SelectItem>
-                  <SelectItem value="1">1</SelectItem>
-                  <SelectItem value="2">2</SelectItem>
-                  <SelectItem value="3">3</SelectItem>
-                  <SelectItem value="4">4</SelectItem>
+                  {[0, 1, 2, 3, 4].map((n) => (
+                    <SelectItem key={n} value={n.toString()}>{n}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -391,9 +231,9 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="0">0</SelectItem>
-                  <SelectItem value="1">1</SelectItem>
-                  <SelectItem value="2">2</SelectItem>
+                  {[0, 1, 2].map((n) => (
+                    <SelectItem key={n} value={n.toString()}>{n}</SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
@@ -406,9 +246,9 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
                 <SelectValue placeholder="Seleccione tipo de habitación" />
               </SelectTrigger>
               <SelectContent>
-                {roomTypes?.map((roomType) => (
-                  <SelectItem key={roomType.id} value={roomType.id}>
-                    {roomType.name} - RD${(roomType.base_price_cents / 100).toFixed(2)}/noche
+                {roomTypes.map((roomType: any) => (
+                  <SelectItem key={roomType.id} value={String(roomType.id)}>
+                    {roomType.name}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -422,43 +262,16 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
             </Label>
             <Select value={formData.ratePlanId} onValueChange={(value) => setFormData({ ...formData, ratePlanId: value })}>
               <SelectTrigger>
-                <SelectValue />
+                <SelectValue placeholder="Seleccione plan de tarifa" />
               </SelectTrigger>
               <SelectContent>
-                {ratePlans?.map((plan) => (
-                  <SelectItem key={plan.id} value={plan.id}>
-                    {plan.name} {plan.modifier_type === 'percentage' && `(-${plan.modifier_value}%)`}
+                {ratePlans.map((plan: any) => (
+                  <SelectItem key={plan.id} value={String(plan.id)}>
+                    {plan.name} {plan.modifier_type === "percentage" && plan.modifier_value ? `(-${plan.modifier_value}%)` : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="promoCode" className="flex items-center gap-2">
-              <Tag className="h-4 w-4" />
-              Código Promocional (Opcional)
-            </Label>
-            <div className="flex gap-2">
-              <Input
-                id="promoCode"
-                placeholder="Ingrese código"
-                value={formData.promoCode}
-                onChange={(e) => {
-                  setFormData({ ...formData, promoCode: e.target.value.toUpperCase() });
-                  setPromoApplied(false);
-                }}
-                className={promoApplied ? "border-green-500" : ""}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={validatePromoCode}
-                disabled={promoValidating || !formData.promoCode.trim()}
-              >
-                {promoValidating ? "..." : promoApplied ? "✓" : "Aplicar"}
-              </Button>
-            </div>
           </div>
 
           {pricePreview && (
@@ -473,12 +286,6 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
                   <div className="flex justify-between text-green-600">
                     <span>Descuento plan de tarifas:</span>
                     <span>-RD${pricePreview.ratePlanDiscount.toFixed(2)}</span>
-                  </div>
-                )}
-                {pricePreview.promoCodeDiscount > 0 && (
-                  <div className="flex justify-between text-green-600">
-                    <span>Descuento código promo:</span>
-                    <span>-RD${pricePreview.promoCodeDiscount.toFixed(2)}</span>
                   </div>
                 )}
                 <div className="flex justify-between">
@@ -497,40 +304,54 @@ const NewReservationDialog = ({ hotelId }: { hotelId: string }) => {
             </div>
           )}
 
-          <div className="space-y-2">
-            <Label htmlFor="customerName">Nombre del Cliente</Label>
-            <Input
-              id="customerName"
-              required
-              value={formData.customerName}
-              onChange={(e) => setFormData({ ...formData, customerName: e.target.value })}
-            />
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="firstName">Nombre *</Label>
+              <Input
+                id="firstName"
+                required
+                value={formData.firstName}
+                onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="lastName">Apellido *</Label>
+              <Input
+                id="lastName"
+                required
+                value={formData.lastName}
+                onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+              />
+            </div>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="customerEmail">Email del Cliente</Label>
+            <Label htmlFor="email">Email</Label>
             <Input
-              id="customerEmail"
+              id="email"
               type="email"
-              required
-              value={formData.customerEmail}
-              onChange={(e) => setFormData({ ...formData, customerEmail: e.target.value })}
+              value={formData.email}
+              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
             />
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="customerPhone">Teléfono del Cliente</Label>
+            <Label htmlFor="phone">Teléfono</Label>
             <Input
-              id="customerPhone"
+              id="phone"
               type="tel"
               placeholder="Ej: (809) 555-1234"
-              value={formData.customerPhone}
-              onChange={(e) => setFormData({ ...formData, customerPhone: e.target.value })}
+              value={formData.phone}
+              onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
             />
           </div>
 
-          <Button type="submit" className="w-full bg-gradient-ocean" disabled={loading}>
-            {loading ? "Creando..." : "Crear Reserva"}
+          <Button
+            type="submit"
+            className="w-full bg-gradient-ocean"
+            disabled={createReservationMutation.isPending}
+          >
+            {createReservationMutation.isPending ? "Creando..." : "Crear Reserva"}
           </Button>
         </form>
       </DialogContent>
