@@ -65,11 +65,266 @@ class ApiClient {
     }
 
     // --- Auth ---
-    async login(email: string, password: string) {
-        return this.request<{ token: string; user: any }>('/auth/login', {
+    async login(email: string, password: string, deviceName = 'web') {
+        const res = await this.request<{ token: string; user: any }>('/auth/login', {
             method: 'POST',
-            body: { email, password },
+            body: { email, password, device_name: deviceName },
         });
+        this.setToken(res.token);
+        localStorage.setItem('api_token', res.token);
+        return res;
+    }
+
+    async register(data: { name: string; email: string; password: string; password_confirmation: string; hotel_name: string }) {
+        const res = await this.request<{ token: string; user: any }>('/auth/register', {
+            method: 'POST',
+            body: data,
+        });
+        this.setToken(res.token);
+        localStorage.setItem('api_token', res.token);
+        return res;
+    }
+
+    async logout() {
+        const res = await this.request<{ message: string }>('/auth/logout', { method: 'POST' });
+        this.clearToken();
+        localStorage.removeItem('api_token');
+        return res;
+    }
+
+    async me() {
+        return this.request<{ data: any }>('/auth/me');
+    }
+
+    async updateProfile(data: Record<string, unknown>) {
+        return this.request<{ message: string; user: any }>('/auth/me', { method: 'PUT', body: data });
+    }
+
+    async switchHotel(hotelId: number) {
+        return this.request<{ message: string }>('/auth/switch-hotel', { method: 'POST', body: { hotel_id: hotelId } });
+    }
+
+    // --- Hotel Settings ---
+    async getHotel() {
+        return this.request<{ data: HotelData }>('/hotel');
+    }
+
+    async updateHotel(data: Partial<HotelData>) {
+        return this.request<{ message: string; hotel: HotelData }>('/hotel', {
+            method: 'PUT',
+            body: data as Record<string, unknown>,
+        });
+    }
+
+    // --- Room Types ---
+    async getRoomTypes(params?: Record<string, string>) {
+        return this.request<{ data: any[] }>('/room-types', { params });
+    }
+    async createRoomType(data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>('/room-types', { method: 'POST', body: data });
+    }
+    async getRoomType(id: number) {
+        return this.request<{ data: any }>(`/room-types/${id}`);
+    }
+    async updateRoomType(id: number, data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>(`/room-types/${id}`, { method: 'PUT', body: data });
+    }
+    async deleteRoomType(id: number) {
+        return this.request<{ message: string }>(`/room-types/${id}`, { method: 'DELETE' });
+    }
+
+    // --- Rooms ---
+    async getRooms(params?: Record<string, string>) {
+        return this.request<{ data: any[] }>('/rooms', { params });
+    }
+    async createRoom(data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>('/rooms', { method: 'POST', body: data });
+    }
+    async getRoom(id: number) {
+        return this.request<{ data: any }>(`/rooms/${id}`);
+    }
+    async updateRoom(id: number, data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>(`/rooms/${id}`, { method: 'PUT', body: data });
+    }
+    async deleteRoom(id: number) {
+        return this.request<{ message: string }>(`/rooms/${id}`, { method: 'DELETE' });
+    }
+    async getStatusGrid() {
+        return this.request<{ data: any }>('/rooms/status-grid');
+    }
+    async markRoomClean(id: number) {
+        return this.request<{ data: any }>(`/rooms/${id}/mark-clean`, { method: 'POST' });
+    }
+    async markRoomDirty(id: number) {
+        return this.request<{ data: any }>(`/rooms/${id}/mark-dirty`, { method: 'POST' });
+    }
+    async markRoomInspecting(id: number) {
+        return this.request<{ data: any }>(`/rooms/${id}/mark-inspecting`, { method: 'POST' });
+    }
+    async roomOutOfOrder(id: number) {
+        return this.request<{ data: any }>(`/rooms/${id}/out-of-order`, { method: 'POST' });
+    }
+    async roomBackInService(id: number) {
+        return this.request<{ data: any }>(`/rooms/${id}/back-in-service`, { method: 'POST' });
+    }
+
+    // --- Guests ---
+    async getGuests(params?: Record<string, string>) {
+        return this.request<{ data: any[]; meta: any }>('/guests', { params });
+    }
+    async createGuest(data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>('/guests', { method: 'POST', body: data });
+    }
+    async getGuest(id: number) {
+        return this.request<{ data: any }>(`/guests/${id}`);
+    }
+    async updateGuest(id: number, data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>(`/guests/${id}`, { method: 'PUT', body: data });
+    }
+    async deleteGuest(id: number) {
+        return this.request<{ message: string }>(`/guests/${id}`, { method: 'DELETE' });
+    }
+    async getGuestReservations(id: number) {
+        return this.request<{ data: any[] }>(`/guests/${id}/reservations`);
+    }
+    async addGuestNote(id: number, data: { content: string }) {
+        return this.request<{ message: string; data: any }>(`/guests/${id}/notes`, { method: 'POST', body: data });
+    }
+
+    // --- Availability ---
+    async searchAvailability(data: Record<string, unknown>) {
+        return this.request<{ data: any }>('/availability/search', { method: 'POST', body: data });
+    }
+    async getQuote(data: Record<string, unknown>) {
+        return this.request<{ data: any }>('/availability/quote', { method: 'POST', body: data });
+    }
+
+    // --- Reservations ---
+    async getReservations(params?: Record<string, string>) {
+        return this.request<{ data: any[]; meta: any }>('/reservations', { params });
+    }
+    async createReservation(data: Record<string, unknown>) {
+        return this.request<{ message: string; reservation: any }>('/reservations', { method: 'POST', body: data });
+    }
+    async getReservation(id: number) {
+        return this.request<{ data: any }>(`/reservations/${id}`);
+    }
+    async getTodayArrivals() {
+        return this.request<{ data: any[] }>('/reservations/today-arrivals');
+    }
+    async getTodayDepartures() {
+        return this.request<{ data: any[] }>('/reservations/today-departures');
+    }
+    async getInHouseGuests() {
+        return this.request<{ data: any[] }>('/reservations/in-house');
+    }
+    async checkIn(id: number, data?: Record<string, unknown>) {
+        return this.request<{ message: string; reservation: any }>(`/reservations/${id}/check-in`, { method: 'POST', body: data });
+    }
+    async checkOut(id: number, data?: Record<string, unknown>) {
+        return this.request<{ message: string; reservation: any }>(`/reservations/${id}/check-out`, { method: 'POST', body: data });
+    }
+    async cancelReservation(id: number, data?: { reason?: string }) {
+        return this.request<{ message: string; reservation: any }>(`/reservations/${id}/cancel`, { method: 'POST', body: data });
+    }
+    async walkIn(data: Record<string, unknown>) {
+        return this.request<{ message: string; reservation: any }>('/reservations/walk-in', { method: 'POST', body: data });
+    }
+    async checkInUnit(unitId: number, data?: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>(`/reservation-units/${unitId}/check-in`, { method: 'POST', body: data });
+    }
+    async checkOutUnit(unitId: number, data?: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>(`/reservation-units/${unitId}/check-out`, { method: 'POST', body: data });
+    }
+
+    // --- Rate Plans ---
+    async getRatePlans(params?: Record<string, string>) {
+        return this.request<{ data: any[] }>('/rate-plans', { params });
+    }
+    async createRatePlan(data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>('/rate-plans', { method: 'POST', body: data });
+    }
+    async updateRatePlan(id: number, data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>(`/rate-plans/${id}`, { method: 'PUT', body: data });
+    }
+    async deleteRatePlan(id: number) {
+        return this.request<{ message: string }>(`/rate-plans/${id}`, { method: 'DELETE' });
+    }
+
+    // --- Folios & Billing ---
+    async getFolio(id: number) {
+        return this.request<{ data: any }>(`/folios/${id}`);
+    }
+    async getFolioSummary(id: number) {
+        return this.request<{ data: any }>(`/folios/${id}/summary`);
+    }
+    async postCharge(folioId: number, data: { category: string; description: string; amount_cents: number; charge_date?: string }) {
+        return this.request<{ message: string; data: any; folio_balance_cents: number }>(`/folios/${folioId}/charges`, { method: 'POST', body: data });
+    }
+    async postAdjustment(folioId: number, data: { amount_cents: number; description?: string }) {
+        return this.request<{ message: string; data: any; folio_balance_cents: number }>(`/folios/${folioId}/adjustments`, { method: 'POST', body: data });
+    }
+    async voidCharge(folioId: number, chargeId: number) {
+        return this.request<{ message: string; folio_balance_cents: number }>(`/folios/${folioId}/charges/${chargeId}`, { method: 'DELETE' });
+    }
+    async postRoomCharges(folioId: number) {
+        return this.request<{ message: string; data: any[]; folio_balance_cents: number }>(`/folios/${folioId}/post-room-charges`, { method: 'POST' });
+    }
+
+    // --- Payments ---
+    async getFolioPayments(folioId: number) {
+        return this.request<{ data: any[] }>(`/folios/${folioId}/payments`);
+    }
+    async recordPayment(folioId: number, data: { provider: string; amount_cents: number; description?: string; reference_number?: string; card_brand?: string; card_last_four?: string }) {
+        return this.request<{ message: string; data: any; folio_balance_cents: number }>(`/folios/${folioId}/payments`, { method: 'POST', body: data });
+    }
+    async getPayment(id: number) {
+        return this.request<{ data: any }>(`/payments/${id}`);
+    }
+    async refundPayment(id: number, data: { amount_cents?: number; reason: string; notes?: string }) {
+        return this.request<{ message: string; data: any; folio_balance_cents: number }>(`/payments/${id}/refund`, { method: 'POST', body: data });
+    }
+    async getPaymentsByReservation(reservationId: number) {
+        return this.request<{ data: any[] }>(`/payments/by-reservation/${reservationId}`);
+    }
+
+    // --- Night Audits ---
+    async getNightAudits(params?: Record<string, string>) {
+        return this.request<{ data: any[]; meta: any }>('/night-audits', { params });
+    }
+    async getNightAudit(id: number) {
+        return this.request<{ data: any }>(`/night-audits/${id}`);
+    }
+    async runNightAudit() {
+        return this.request<{ message: string; data: any }>('/night-audits/run', { method: 'POST' });
+    }
+
+    // --- Notifications ---
+    async getNotifications(params?: Record<string, string>) {
+        return this.request<{ data: any[]; meta: any }>('/notifications', { params });
+    }
+    async getUnreadCount() {
+        return this.request<{ unread_count: number }>('/notifications/unread-count');
+    }
+    async markNotificationRead(id: number) {
+        return this.request<{ message: string }>(`/notifications/${id}/read`, { method: 'POST' });
+    }
+    async markAllNotificationsRead() {
+        return this.request<{ message: string }>('/notifications/read-all', { method: 'POST' });
+    }
+
+    // --- Booking Engine (public) ---
+    async getBookingHotel(slug: string) {
+        return this.request<{ data: any }>(`/booking/${slug}`);
+    }
+    async searchBookingAvailability(slug: string, data: Record<string, unknown>) {
+        return this.request<{ data: any }>(`/booking/${slug}/search`, { method: 'POST', body: data });
+    }
+    async getBookingQuote(slug: string, data: Record<string, unknown>) {
+        return this.request<{ data: any }>(`/booking/${slug}/quote`, { method: 'POST', body: data });
+    }
+    async createBookingReservation(slug: string, data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>(`/booking/${slug}/reserve`, { method: 'POST', body: data });
     }
 
     // --- Reports ---
@@ -388,6 +643,30 @@ export interface PaymentDistributionData {
         total: string;
         by_provider: Record<string, { count: number; amount_cents: number }>;
     }>;
+}
+
+// --- Hotel Types ---
+export interface HotelData {
+    id: number;
+    name: string;
+    slug: string;
+    legal_name?: string;
+    tax_id?: string;
+    email?: string;
+    phone?: string;
+    website?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    zip_code?: string;
+    timezone?: string;
+    currency?: string;
+    logo_url?: string;
+    check_in_time?: string;
+    check_out_time?: string;
+    tax_rate?: number;
+    settings?: Record<string, unknown>;
 }
 
 // --- Channel Manager Types ---

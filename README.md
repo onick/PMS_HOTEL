@@ -1,73 +1,88 @@
-# Welcome to your Lovable project
+# HotelMate PMS — Frontend
 
-## Project info
+React SPA for HotelMate, a hotel property management system.
 
-**URL**: https://lovable.dev/projects/b83dc17e-39fe-4e6b-ae7e-260841e3fed5
+## Tech Stack
 
-## How can I edit this code?
+- **React 18** + **TypeScript** + **Vite**
+- **shadcn/ui** (Radix UI + Tailwind CSS)
+- **TanStack Query** — Server state management
+- **Zustand** — Client state
+- **React Router v6** — Lazy-loaded routes
+- **Recharts** — Data visualization
+- **Stripe.js** — Payment forms
 
-There are several ways of editing your application.
+## Modules
 
-**Use Lovable**
+| Module | Page | Components |
+|--------|------|------------|
+| Dashboard | DashboardHome, ManagerDashboard | StatCard, RoomStatusCard, KpiCard |
+| Front Desk | FrontDesk | TodayArrivals, TodayDepartures, InHouseGuests, RoomStatusGrid, WalkInDialog |
+| Reservations | Reservations | ReservationsList, Calendar, Timeline, NewReservationDialog |
+| Housekeeping | Housekeeping | RoomsByStatus, CleaningPriority, RoomChecklist, IncidentReports |
+| Billing | Billing | ActiveFolios, FolioDetails, PaymentMethods, RecentTransactions |
+| Channel Manager | Channels | ChannelsList, ChannelMappings, InventorySync, SyncLogs |
+| Revenue | Revenue | RateCalendar, CompetitorRates, RevenueSettings |
+| CRM | CRM | GuestsList, GuestDetails |
+| Reports | Reports, ManagerReports | OccupancyChart, RevenueChart, SparklineChart |
+| Booking Engine | BookingEngine | 4-step public wizard (search, select, guest info, confirm) |
+| Settings | Settings | HotelSettings, RoomTypes, Rooms, RatePlans, PromoCodes |
+| Staff | Staff | AddStaffDialog |
+| Security | Security | AuditLogs, PermissionsManager, GDPRRequests |
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/b83dc17e-39fe-4e6b-ae7e-260841e3fed5) and start prompting.
+**90+ components across 24 pages**
 
-Changes made via Lovable will be committed automatically to this repo.
+## Quick Start
 
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```bash
+npm install
+cp .env.example .env    # Fill in your values
+npm run dev             # http://localhost:8080
 ```
 
-**Edit a file directly in GitHub**
+## Environment Variables
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+```env
+# Laravel API Backend
+VITE_API_URL=http://localhost:8000/api
 
-**Use GitHub Codespaces**
+# Supabase (legacy — being migrated to Laravel)
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_PUBLISHABLE_KEY=your_anon_key
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+# Stripe
+VITE_STRIPE_PUBLISHABLE_KEY=pk_test_...
+```
 
-## What technologies are used for this project?
+## Backend Integration
 
-This project is built with:
+The app connects to two backends during migration:
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+- **Laravel API** (`src/lib/api.ts`) — Reports, Channel Manager, Billing, all CRUD
+- **Supabase** (`src/integrations/supabase/`) — Legacy auth and edge functions (Demo Mode available)
 
-## How can I deploy this project?
+## Project Structure
 
-Simply open [Lovable](https://lovable.dev/projects/b83dc17e-39fe-4e6b-ae7e-260841e3fed5) and click on Share -> Publish.
+```
+src/
+├── components/          # 90+ components organized by module
+├── hooks/               # 10 custom hooks (permissions, subscriptions, etc.)
+├── integrations/supabase/ # Supabase client + types (legacy)
+├── lib/                 # api.ts (Laravel client), utils
+├── pages/               # 24 pages (lazy-loaded)
+└── styles/              # Global CSS
+```
 
-## Can I connect a custom domain to my Lovable project?
+## Scripts
 
-Yes, you can!
+```bash
+npm run dev          # Start dev server (port 8080)
+npm run build        # Production build
+npm run test         # Unit tests (Vitest)
+npm run test:e2e     # E2E tests (Playwright)
+npm run lint         # ESLint
+```
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+## Related
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+- **Backend:** [PMS_HOTEL_API](https://github.com/onick/PMS_HOTEL_API) — Laravel 12 REST API
