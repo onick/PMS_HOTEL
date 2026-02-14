@@ -57,6 +57,14 @@ class ApiClient {
         });
 
         if (!response.ok) {
+            if (response.status === 401) {
+                // Keep auth state consistent across the app on expired/invalid token.
+                this.clearToken();
+                localStorage.removeItem('api_token');
+                if (typeof window !== 'undefined') {
+                    window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+                }
+            }
             const error = await response.json().catch(() => ({ message: 'Network error' }));
             throw new ApiError(response.status, error.message || 'Request failed', error);
         }
@@ -93,7 +101,13 @@ class ApiClient {
     }
 
     async me() {
-        return this.request<{ data: any }>('/auth/me');
+        const res = await this.request<{ data?: any; user?: any }>('/auth/me');
+        const normalizedUser = res.user ?? res.data ?? null;
+        return {
+            ...res,
+            user: normalizedUser,
+            data: normalizedUser,
+        } as { data: any; user: any };
     }
 
     async updateProfile(data: Record<string, unknown>) {
@@ -102,6 +116,32 @@ class ApiClient {
 
     async switchHotel(hotelId: number) {
         return this.request<{ message: string }>('/auth/switch-hotel', { method: 'POST', body: { hotel_id: hotelId } });
+    }
+
+    async getPermissions() {
+        return this.request<{ role: string | null; permissions: string[]; modules: string[] }>('/auth/permissions');
+    }
+
+    // --- Subscription ---
+    async getCurrentSubscription() {
+        return this.request<{ data: any }>('/subscriptions/current');
+    }
+    async changeSubscriptionPlan(plan: 'FREE' | 'BASIC' | 'PRO' | 'ENTERPRISE') {
+        return this.request<{ message: string; data: any }>('/subscriptions/change-plan', {
+            method: 'POST',
+            body: { plan },
+        });
+    }
+
+    // --- Staff ---
+    async getStaff() {
+        return this.request<{ data: any[]; invitations: any[] }>('/staff');
+    }
+    async inviteStaff(data: { email: string; full_name?: string; phone?: string; role: string }) {
+        return this.request<{ message: string; data: any }>('/staff/invitations', {
+            method: 'POST',
+            body: data,
+        });
     }
 
     // --- Hotel Settings ---
@@ -177,7 +217,7 @@ class ApiClient {
         return this.request<{ data: any[]; meta: any }>('/guests', { params });
     }
     async createGuest(data: Record<string, unknown>) {
-        return this.request<{ message: string; data: any }>('/guests', { method: 'POST', body: data });
+        return this.request<{ message: string; guest: any }>('/guests', { method: 'POST', body: data });
     }
     async getGuest(id: number) {
         return this.request<{ data: any }>(`/guests/${id}`);
@@ -291,6 +331,26 @@ class ApiClient {
         return this.request<{ message: string; data: any; new_stock: number }>(`/inventory/${itemId}/movements`, { method: 'POST', body: data });
     }
 
+    // --- Incidents ---
+    async getIncidents(params?: Record<string, string>) {
+        return this.request<{ data: any[] }>('/incidents', { params });
+    }
+    async createIncident(data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>('/incidents', { method: 'POST', body: data });
+    }
+    async updateIncidentStatus(incidentId: number, data: { status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED'; comment?: string }) {
+        return this.request<{ message: string; data: any }>(`/incidents/${incidentId}/status`, {
+            method: 'PATCH',
+            body: data,
+        });
+    }
+
+    async getFolios(params?: Record<string, string>) {
+        return this.request<{ data: any[]; meta: any }>('/folios', { params });
+    }
+    async getBillingStats() {
+        return this.request<{ data: any }>('/billing/stats');
+    }
     async getFolio(id: number) {
         return this.request<{ data: any }>(`/folios/${id}`);
     }
@@ -403,6 +463,18 @@ class ApiClient {
 
     async getPaymentDistribution(from: string, to: string) {
         return this.request<{ data: PaymentDistributionData }>('/reports/payments', {
+            params: { from, to },
+        });
+    }
+
+    async getRevenueByRoomType(from: string, to: string) {
+        return this.request<{ data: any }>('/reports/revenue-by-room-type', {
+            params: { from, to },
+        });
+    }
+
+    async getRevenueBySource(from: string, to: string) {
+        return this.request<{ data: any }>('/reports/revenue-by-source', {
             params: { from, to },
         });
     }

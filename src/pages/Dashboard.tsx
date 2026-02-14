@@ -1,12 +1,11 @@
 import { useState, useEffect } from "react";
-import { supabase, DEMO_MODE, DEMO_USER } from "@/integrations/supabase/client";
 import { api } from "@/lib/api";
 import { useNavigate, Outlet } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/AppSidebar";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
-import { 
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -24,24 +23,9 @@ import { MobileBottomNav } from "@/components/MobileBottomNav";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { cn } from "@/lib/utils";
 
-// 🎮 Datos demo para el hotel
-const DEMO_HOTEL = {
-  id: 'demo-hotel-1',
-  name: 'Hotel Playa Paraíso',
-  address: 'Calle Principal #123',
-  city: 'Pedernales',
-  state: 'Pedernales',
-  country: 'República Dominicana',
-  postal_code: '18004',
-  phone: '+1 (809) 555-0100',
-  email: 'info@playaparaiso.do',
-  website: 'https://playaparaiso.do',
-  currency: 'DOP',
-  timezone: 'America/Santo_Domingo',
-  tax_rate: 18.00,
-  check_in_time: '15:00:00',
-  check_out_time: '12:00:00',
-};
+const SESSION_IDLE_MINUTES = Number(import.meta.env.VITE_SESSION_IDLE_MINUTES ?? 30);
+const SESSION_WARNING_MINUTES = Number(import.meta.env.VITE_SESSION_WARNING_MINUTES ?? 2);
+const SESSION_ACTIVITY_KEY = "auth:last_activity_at";
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -56,77 +40,135 @@ const Dashboard = () => {
     checkUser();
   }, []);
 
+  useEffect(() => {
+    const handleUnauthorized = (event: Event) => {
+      const customEvent = event as CustomEvent<{ reason?: string }>;
+      if (customEvent.detail?.reason === "idle_timeout") {
+        toast.info("Sesión cerrada por inactividad");
+      } else {
+        toast.error("Tu sesión expiró, inicia sesión nuevamente.");
+      }
+      navigate("/auth");
+    };
+
+    window.addEventListener("auth:unauthorized", handleUnauthorized as EventListener);
+    return () => {
+      window.removeEventListener("auth:unauthorized", handleUnauthorized as EventListener);
+    };
+  }, [navigate]);
+
+  useEffect(() => {
+    if (!api.getToken()) return;
+    if (Number.isNaN(SESSION_IDLE_MINUTES) || SESSION_IDLE_MINUTES <= 0) return;
+
+    let warned = false;
+    let closed = false;
+    const idleMs = SESSION_IDLE_MINUTES * 60 * 1000;
+    const warningMs = Math.max(0, SESSION_WARNING_MINUTES) * 60 * 1000;
+
+    const markActivity = () => {
+      localStorage.setItem(SESSION_ACTIVITY_KEY, String(Date.now()));
+      warned = false;
+    };
+
+    const checkIdle = () => {
+      if (closed) return;
+
+      const lastActivity = Number(localStorage.getItem(SESSION_ACTIVITY_KEY) || Date.now());
+      const elapsed = Date.now() - lastActivity;
+      const remaining = idleMs - elapsed;
+
+      if (remaining <= 0) {
+        closed = true;
+        api.clearToken();
+        localStorage.removeItem("api_token");
+        window.dispatchEvent(new CustomEvent("auth:unauthorized", { detail: { reason: "idle_timeout" } }));
+        return;
+      }
+
+      if (!warned && warningMs > 0 && remaining <= warningMs) {
+        warned = true;
+        const minutesLeft = Math.max(1, Math.ceil(remaining / 60000));
+        toast.warning(`Tu sesión expirará en ${minutesLeft} min por inactividad.`);
+      }
+    };
+
+    markActivity();
+
+    const activityEvents: Array<keyof WindowEventMap> = [
+      "mousemove",
+      "mousedown",
+      "keydown",
+      "scroll",
+      "touchstart",
+      "click",
+    ];
+
+    activityEvents.forEach((eventName) => {
+      window.addEventListener(eventName, markActivity, { passive: true });
+    });
+
+    const intervalId = window.setInterval(checkIdle, 15000);
+
+    return () => {
+      window.clearInterval(intervalId);
+      activityEvents.forEach((eventName) => {
+        window.removeEventListener(eventName, markActivity as EventListener);
+      });
+    };
+  }, []);
+
   const checkUser = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    
-    if (!session) {
+    const token = api.getToken();
+    if (!token) {
       navigate("/auth");
       return;
     }
 
-    setUser(session.user);
+    try {
+      // Get user profile (includes current_hotel)
+      const meRes = await api.me();
+      const userData = (meRes as any).user || meRes.data;
+      setUser(userData);
 
-    // Modo Demo: always login to Laravel API and fetch real hotel data
-    if (DEMO_MODE) {
+      // Get full hotel data
       try {
-        await api.login('admin@hoteldemo.com', 'password');
-        const res = await api.getHotel();
-        setHotel(res.data);
-      } catch (err) {
-        console.warn("Laravel API unavailable, using offline demo:", err);
-        setHotel(DEMO_HOTEL);
+        const hotelRes = await api.getHotel();
+        setHotel(hotelRes.data);
+      } catch {
+        // Use the hotel info from user profile as fallback
+        if (userData.current_hotel) {
+          setHotel(userData.current_hotel);
+        } else {
+          toast.error("Error cargando datos del hotel");
+        }
       }
-      setLoading(false);
+    } catch {
+      // Token invalid — redirect to login
+      localStorage.removeItem("api_token");
+      navigate("/auth");
       return;
-    }
-
-    // Primero obtenemos el rol del usuario
-    const { data: userRole, error: roleError } = await supabase
-      .from("user_roles")
-      .select("hotel_id")
-      .eq("user_id", session.user.id)
-      .limit(1)
-      .single();
-
-    if (roleError) {
-      console.error("Error fetching user role:", roleError);
-      setLoading(false);
-      return;
-    }
-
-    if (!userRole) {
-      setLoading(false);
-      return;
-    }
-
-    // Luego obtenemos los datos del hotel
-    const { data: hotelData, error: hotelError } = await supabase
-      .from("hotels")
-      .select("*")
-      .eq("id", userRole.hotel_id)
-      .single();
-
-    if (hotelError) {
-      console.error("Error fetching hotel:", hotelError);
-      toast.error("Error cargando datos del hotel");
-    } else {
-      setHotel(hotelData);
     }
 
     setLoading(false);
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    // Also clear Laravel API token
-    try { await api.logout(); } catch { /* ignore */ }
-    localStorage.removeItem('api_token');
+    try {
+      await api.logout();
+    } catch {
+      // Clear token even if server call fails
+    }
+    localStorage.removeItem("api_token");
     navigate("/auth");
   };
 
   const getUserInitials = () => {
-    if (!user?.email) return "U";
-    return user.email.charAt(0).toUpperCase();
+    if (user?.name) {
+      return user.name.split(" ").map((n: string) => n[0]).join("").substring(0, 2).toUpperCase();
+    }
+    if (user?.email) return user.email.charAt(0).toUpperCase();
+    return "U";
   };
 
   if (loading) {
@@ -180,11 +222,11 @@ const Dashboard = () => {
                   <span className="text-sm truncate">{hotel.name}</span>
                 </div>
               </div>
-              
+
               {/* Mobile: Show only icons */}
               <div className="flex items-center gap-2 md:gap-3 ml-auto">
-                <NotificationBell hotelId={hotel.id} />
-                
+                <NotificationBell />
+
                 {/* User Menu */}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
@@ -199,7 +241,7 @@ const Dashboard = () => {
                   <DropdownMenuContent align="end" className="w-56">
                     <DropdownMenuLabel>
                       <div className="flex flex-col space-y-1">
-                        <p className="text-sm font-medium">Mi Cuenta</p>
+                        <p className="text-sm font-medium">{user?.name || "Mi Cuenta"}</p>
                         <p className="text-xs text-muted-foreground truncate">
                           {user?.email}
                         </p>
