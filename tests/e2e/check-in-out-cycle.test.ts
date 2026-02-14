@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test';
 import { createTestUser, loginUser, supabase } from '../helpers/auth.helper';
 import { createTestHotel, createTestGuest, cleanupTestData } from '../helpers/test-data.helper';
 
+const ENABLE_LEGACY_SUPABASE_TESTS = process.env.ENABLE_LEGACY_SUPABASE_TESTS === 'true';
+
 /**
  * PRUEBA CRÍTICA #3: Check-In/Out Cycle
  * 
@@ -13,6 +15,7 @@ import { createTestHotel, createTestGuest, cleanupTestData } from '../helpers/te
  */
 
 test.describe('Check-In/Out Cycle E2E', () => {
+  test.skip(!ENABLE_LEGACY_SUPABASE_TESTS, 'Legacy Supabase tests disabled. Set ENABLE_LEGACY_SUPABASE_TESTS=true to run.');
   let hotelId: string;
   let userId: string;
   let guestId: string;
@@ -383,4 +386,3 @@ test.describe('Check-In/Out Cycle E2E', () => {
     expect(finalFolio3?.status).toBe('CLOSED');
   });
 });
-

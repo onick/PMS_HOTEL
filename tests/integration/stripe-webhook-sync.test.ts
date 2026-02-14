@@ -11,6 +11,8 @@ import {
   sendWebhookToEdgeFunction,
 } from '../helpers/stripe.helper';
 
+const ENABLE_LEGACY_SUPABASE_TESTS = process.env.ENABLE_LEGACY_SUPABASE_TESTS === 'true';
+
 /**
  * PRUEBA CRÍTICA #2: Stripe Webhooks Synchronization
  * 
@@ -21,6 +23,7 @@ import {
  */
 
 test.describe('Stripe Webhooks Synchronization', () => {
+  test.skip(!ENABLE_LEGACY_SUPABASE_TESTS, 'Legacy Supabase tests disabled. Set ENABLE_LEGACY_SUPABASE_TESTS=true to run.');
   let hotelId: string;
   let userId: string;
   const customerId = 'cus_test_' + Date.now();
@@ -240,4 +243,3 @@ test.describe('Stripe Webhooks Synchronization', () => {
     expect(error).toBeNull();
   });
 });
-

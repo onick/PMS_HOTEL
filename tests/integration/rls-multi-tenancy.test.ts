@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
-import { createClient } from '@supabase/supabase-js';
 import { createTestUser, supabase } from '../helpers/auth.helper';
 import { createTestHotel, createTestGuest, createTestReservation, cleanupTestData } from '../helpers/test-data.helper';
+
+const ENABLE_LEGACY_SUPABASE_TESTS = process.env.ENABLE_LEGACY_SUPABASE_TESTS === 'true';
 
 /**
  * PRUEBA CRÍTICA #1: RLS Multi-tenancy
@@ -13,6 +14,7 @@ import { createTestHotel, createTestGuest, createTestReservation, cleanupTestDat
  */
 
 test.describe('RLS Multi-tenancy Security', () => {
+  test.skip(!ENABLE_LEGACY_SUPABASE_TESTS, 'Legacy Supabase tests disabled. Set ENABLE_LEGACY_SUPABASE_TESTS=true to run.');
   let hotelA_id: string;
   let hotelB_id: string;
   let userA_id: string;
@@ -177,4 +179,3 @@ test.describe('RLS Multi-tenancy Security', () => {
     await supabase.auth.signOut();
   });
 });
-

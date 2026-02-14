@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test';
 import { createTestUser, supabase } from '../helpers/auth.helper';
 import { createTestHotel, createTestGuest, cleanupTestData } from '../helpers/test-data.helper';
 
+const ENABLE_LEGACY_SUPABASE_TESTS = process.env.ENABLE_LEGACY_SUPABASE_TESTS === 'true';
+
 /**
  * PRUEBA CRÍTICA #1: Payment Flow with Stripe
  *
@@ -22,6 +24,7 @@ import { createTestHotel, createTestGuest, cleanupTestData } from '../helpers/te
  */
 
 test.describe('Payment Flow E2E', () => {
+  test.skip(!ENABLE_LEGACY_SUPABASE_TESTS, 'Legacy Supabase tests disabled. Set ENABLE_LEGACY_SUPABASE_TESTS=true to run.');
   let hotelId: string;
   let userId: string;
   let roomTypeId: string;

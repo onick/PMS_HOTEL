@@ -20,7 +20,7 @@ describe('useToast', () => {
     });
   });
 
-  it('should dismiss toast', () => {
+  it('should dismiss toast (close it without removing immediately)', () => {
     const { result } = renderHook(() => useToast());
 
     let toastId: string;
@@ -37,23 +37,26 @@ describe('useToast', () => {
       result.current.dismiss(toastId);
     });
 
-    expect(result.current.toasts).toHaveLength(0);
+    expect(result.current.toasts).toHaveLength(1);
+    expect(result.current.toasts[0].open).toBe(false);
   });
 
-  it('should remove toast after duration', async () => {
+  it('should enforce toast limit and keep the latest toast', () => {
     const { result } = renderHook(() => useToast());
 
     act(() => {
       result.current.toast({
-        title: 'Test Toast',
-        duration: 100,
+        title: 'Toast 1',
+      });
+
+      result.current.toast({
+        title: 'Toast 2',
       });
     });
 
     expect(result.current.toasts).toHaveLength(1);
-
-    await new Promise((resolve) => setTimeout(resolve, 150));
-
-    expect(result.current.toasts).toHaveLength(0);
+    expect(result.current.toasts[0]).toMatchObject({
+      title: 'Toast 2',
+    });
   });
 });

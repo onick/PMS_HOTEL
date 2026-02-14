@@ -36,21 +36,28 @@ npm run test:all
 
 ### 1. Variables de Entorno
 
-Crea un archivo `.env.test` con tus credenciales de **proyecto de testing**:
+Crea un archivo `.env.test` para el entorno Laravel API:
 
 ```env
-VITE_SUPABASE_URL=https://your-test-project.supabase.co
-VITE_SUPABASE_ANON_KEY=your_test_anon_key
+VITE_API_BASE_URL=http://localhost:8000/api
 VITE_APP_URL=http://localhost:5173
 ```
 
-⚠️ **IMPORTANTE:** Usa un proyecto de Supabase SEPARADO para testing, NO uses producción.
+Tests legacy de Supabase están desactivados por defecto.  
+Para ejecutarlos temporalmente:
+
+```bash
+ENABLE_LEGACY_SUPABASE_TESTS=true npm run test:integration
+ENABLE_LEGACY_SUPABASE_TESTS=true npm run test:e2e
+```
+
+⚠️ No habilites `ENABLE_LEGACY_SUPABASE_TESTS` en CI mientras se completa la migración a Laravel API.
 
 ### 2. Preparar Base de Datos
 
-Asegúrate de que tu proyecto de testing tenga:
-- ✅ Todas las migraciones aplicadas
-- ✅ RLS policies habilitadas
+Asegúrate de que el backend Laravel de testing tenga:
+- ✅ Migraciones aplicadas
+- ✅ Seeders mínimos para roles/permisos
 - ✅ Datos de prueba limpios (sin data real)
 
 ## 🔴 Pruebas Implementadas

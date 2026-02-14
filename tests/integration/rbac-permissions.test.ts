@@ -2,6 +2,8 @@ import { test, expect } from '@playwright/test';
 import { createTestUser, supabase } from '../helpers/auth.helper';
 import { createTestHotel, cleanupTestData } from '../helpers/test-data.helper';
 
+const ENABLE_LEGACY_SUPABASE_TESTS = process.env.ENABLE_LEGACY_SUPABASE_TESTS === 'true';
+
 /**
  * PRUEBA CRÍTICA #4: RBAC Permissions
  * 
@@ -12,6 +14,7 @@ import { createTestHotel, cleanupTestData } from '../helpers/test-data.helper';
  */
 
 test.describe('RBAC Permissions', () => {
+  test.skip(!ENABLE_LEGACY_SUPABASE_TESTS, 'Legacy Supabase tests disabled. Set ENABLE_LEGACY_SUPABASE_TESTS=true to run.');
   let hotelId: string;
   let ownerUserId: string;
   let managerUserId: string;
@@ -385,4 +388,3 @@ test.describe('RBAC Permissions', () => {
     await supabase.auth.signOut();
   });
 });
-
