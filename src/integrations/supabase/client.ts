@@ -35,9 +35,7 @@ if (!DEMO_MODE && (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY)) {
   throw new Error('Supabase configuration is missing. Please check your .env file.');
 }
 
-if (DEMO_MODE) {
-  console.log('🎮 MODO DEMO ACTIVADO - Autenticación deshabilitada');
-}
+// Supabase mock client active — legacy modules still depend on it
 
 // Import the supabase client like this:
 // import { supabase } from "@/integrations/supabase/client";
@@ -429,23 +427,6 @@ function createMockFunctionInvoke(fn: string, opts?: any) {
   return { data: null, error: null };
 }
 
-// Intercept raw fetch() calls to edge functions in demo mode
-if (DEMO_MODE) {
-  const originalFetch = window.fetch;
-  window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    const fnMatch = url.match(/\/functions\/v1\/(.+?)(?:\?|$)/);
-    if (fnMatch) {
-      const fnName = fnMatch[1];
-      let body = {};
-      try { body = init?.body ? JSON.parse(init.body as string) : {}; } catch { }
-      console.log(`🎮 Demo: Intercepted fetch to "${fnName}"`);
-      const result = createMockFunctionInvoke(fnName, { body });
-      return new Response(JSON.stringify(result.data || {}), {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    }
-    return originalFetch(input, init);
-  };
-}
+// NOTE: window.fetch interceptor removed — all API calls now go through
+// the Laravel API client (src/lib/api.ts). The mock Supabase client above
+// is kept temporarily until all 45+ files are migrated off Supabase.

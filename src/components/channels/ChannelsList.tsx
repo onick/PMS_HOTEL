@@ -225,7 +225,7 @@ export default function ChannelsList() {
                   <Button
                     variant="default"
                     size="sm"
-                    className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white"
+                    className="w-full"
                     onClick={() => setConnectDialog(channel.id)}
                     disabled={connectMutation.isPending}
                   >

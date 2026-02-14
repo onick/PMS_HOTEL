@@ -31,9 +31,8 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { usePermissions } from "@/hooks/usePermissions";
 
 const operationsItems = [
@@ -179,35 +178,19 @@ export function AppSidebar() {
   const location = useLocation();
   const collapsed = state === "collapsed";
   const currentPath = location.pathname;
-  const [user, setUser] = useState<{ email?: string } | null>(null);
+  const [user, setUser] = useState<{ name?: string; email?: string } | null>(null);
 
-  const { data: userRoles } = useQuery({
-    queryKey: ["user-roles-sidebar"],
-    queryFn: async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return null;
-
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", user.id)
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  const { canAccessModule, isAdmin } = usePermissions(userRoles?.hotel_id);
+  const { canAccessModule, isAdmin } = usePermissions();
 
   useEffect(() => {
     const getUser = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      setUser(user);
+      try {
+        const res = await api.me();
+        const userData = (res as any).user || res.data;
+        setUser(userData);
+      } catch {
+        // User will be redirected by Dashboard if token is invalid
+      }
     };
     getUser();
   }, []);
@@ -227,8 +210,11 @@ export function AppSidebar() {
   };
 
   const getUserInitials = () => {
-    if (!user?.email) return "U";
-    return user.email.charAt(0).toUpperCase();
+    if (user?.name) {
+      return user.name.split(" ").map((n) => n[0]).join("").substring(0, 2).toUpperCase();
+    }
+    if (user?.email) return user.email.charAt(0).toUpperCase();
+    return "U";
   };
 
   const canAccess = (item: NavItem) => {
@@ -370,7 +356,7 @@ export function AppSidebar() {
               </Avatar>
               <div className="flex-1 min-w-0">
                 <p className="text-[13px] font-medium text-sidebar-foreground truncate">
-                  Mi Perfil
+                  {user?.name || "Mi Perfil"}
                 </p>
                 <p className="text-[11px] text-sidebar-foreground/50 truncate">
                   {user?.email}

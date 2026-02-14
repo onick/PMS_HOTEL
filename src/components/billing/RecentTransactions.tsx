@@ -1,40 +1,34 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { History, TrendingDown, TrendingUp } from "lucide-react";
 import { formatDate } from "@/lib/date-utils";
 
 export default function RecentTransactions() {
-  const { data: transactions } = useQuery({
+  // Fetch recent folios with charges loaded to display transactions
+  const { data: folios } = useQuery({
     queryKey: ["recent-transactions"],
     queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
-        .single();
-
-      if (!userRoles) return [];
-
-      const { data: charges, error } = await supabase
-        .from("folio_charges")
-        .select(`
-          *,
-          folios (
-            currency,
-            reservations (
-              customer
-            )
-          )
-        `)
-        .order("created_at", { ascending: false })
-        .limit(20);
-
-      if (error) throw error;
-      return charges || [];
+      const res = await api.getFolios({ per_page: "10", include_charges: "1" });
+      return res.data || [];
     },
   });
+
+  // Flatten charges from all folios and sort by date
+  const transactions = (folios || [])
+    .flatMap((folio: any) =>
+      (folio.charges || []).map((charge: any) => ({
+        ...charge,
+        folio_currency: folio.currency,
+        guest_name: folio.reservation?.guest?.full_name || "Huésped",
+      }))
+    )
+    .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 20);
+
+  // If no charges from folios list, try to get individual folio details
+  // For now, show what we have from the folios list endpoint
 
   return (
     <Card>
@@ -55,7 +49,6 @@ export default function RecentTransactions() {
               {transactions.map((transaction: any) => {
                 const amount = transaction.amount_cents / 100;
                 const isPayment = amount < 0;
-                const customerName = transaction.folios?.reservations?.[0]?.customer?.name || "Huésped";
 
                 return (
                   <div
@@ -72,7 +65,7 @@ export default function RecentTransactions() {
                       </div>
                       <div className="flex-1">
                         <p className="font-medium">{transaction.description}</p>
-                        <p className="text-sm text-muted-foreground">{customerName}</p>
+                        <p className="text-sm text-muted-foreground">{transaction.guest_name}</p>
                         <p className="text-xs text-muted-foreground">
                           {formatDate(transaction.charge_date || transaction.created_at)}
                         </p>
@@ -80,10 +73,10 @@ export default function RecentTransactions() {
                     </div>
                     <div className="text-right">
                       <div className={`font-semibold ${isPayment ? "text-success" : "text-foreground"}`}>
-                        {isPayment ? "" : "+"}${amount.toFixed(2)}
+                        {isPayment ? "" : "+"}${Math.abs(amount).toFixed(2)}
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        {transaction.folios?.currency || "USD"}
+                        {transaction.folio_currency || "DOP"}
                       </p>
                     </div>
                   </div>

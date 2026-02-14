@@ -1,5 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -12,34 +10,9 @@ export default function AuditLogs() {
   const [searchTerm, setSearchTerm] = useState("");
   const [actionFilter, setActionFilter] = useState("all");
 
-  const { data: logs, isLoading } = useQuery({
-    queryKey: ["audit-logs", actionFilter],
-    queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id)
-        .limit(1)
-        .single();
-
-      if (!userRoles) throw new Error("No hotel found");
-
-      let query = supabase
-        .from("audit_logs")
-        .select("*")
-        .eq("hotel_id", userRoles.hotel_id)
-        .order("created_at", { ascending: false })
-        .limit(100);
-
-      if (actionFilter !== "all") {
-        query = query.eq("action", actionFilter);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return data;
-    },
-  });
+  // TODO: Wire up when backend audit logs endpoint is available
+  const logs: any[] = [];
+  const isLoading = false;
 
   const actionConfig: Record<string, { color: string; label: string }> = {
     INSERT: { color: "bg-success", label: "Creado" },
@@ -49,32 +22,9 @@ export default function AuditLogs() {
     EXPORT: { color: "bg-channels", label: "Exportado" },
   };
 
-  const filteredLogs = logs?.filter((log) =>
+  const filteredLogs = logs.filter((log) =>
     log.entity_type?.toLowerCase().includes(searchTerm.toLowerCase())
   );
-
-  const exportLogs = () => {
-    if (!logs) return;
-    
-    const csv = [
-      ["Fecha", "Usuario", "Acción", "Tipo", "ID Entidad", "IP"].join(","),
-      ...logs.map(log => [
-        new Date(log.created_at).toLocaleString(),
-        "Sistema",
-        log.action,
-        log.entity_type,
-        log.entity_id || "",
-        log.ip_address || ""
-      ].join(","))
-    ].join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv" });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `audit-logs-${new Date().toISOString()}.csv`;
-    a.click();
-  };
 
   return (
     <Card>
@@ -84,7 +34,7 @@ export default function AuditLogs() {
             <FileText className="h-5 w-5" />
             Registro de Auditoría
           </CardTitle>
-          <Button onClick={exportLogs} size="sm" variant="outline">
+          <Button size="sm" variant="outline" disabled>
             <Download className="h-4 w-4 mr-2" />
             Exportar
           </Button>
@@ -119,13 +69,13 @@ export default function AuditLogs() {
       <CardContent>
         {isLoading ? (
           <div className="text-center py-8 text-muted-foreground">Cargando...</div>
-        ) : filteredLogs?.length === 0 ? (
+        ) : filteredLogs.length === 0 ? (
           <div className="text-center py-8 text-muted-foreground">
-            No se encontraron registros
+            No se encontraron registros de auditoría
           </div>
         ) : (
           <div className="space-y-3">
-            {filteredLogs?.map((log) => (
+            {filteredLogs.map((log) => (
               <div
                 key={log.id}
                 className="p-4 rounded-lg border hover:bg-muted/50 transition-colors"
@@ -138,22 +88,11 @@ export default function AuditLogs() {
                       </Badge>
                       <span className="font-semibold">{log.entity_type}</span>
                     </div>
-                    <div className="text-sm text-muted-foreground space-y-1">
-                      <p>Usuario: Sistema</p>
-                      {log.entity_id && <p>ID: {String(log.entity_id).substring(0, 8)}...</p>}
-                      {log.ip_address && <p>IP: {String(log.ip_address)}</p>}
-                    </div>
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {new Date(log.created_at).toLocaleString()}
                   </div>
                 </div>
-
-                {log.error_message && (
-                  <div className="mt-2 p-2 bg-destructive/10 rounded text-xs text-destructive">
-                    Error: {log.error_message}
-                  </div>
-                )}
               </div>
             ))}
           </div>

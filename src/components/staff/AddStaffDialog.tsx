@@ -1,115 +1,51 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useMutation } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { Mail, User, Phone, UserCog } from "lucide-react";
+import { Loader2, Mail, User, Phone, UserCog } from "lucide-react";
 
 interface AddStaffDialogProps {
   open: boolean;
   onClose: () => void;
-  hotelId: string;
+  onInvited?: () => void;
 }
 
-export function AddStaffDialog({ open, onClose, hotelId }: AddStaffDialogProps) {
-  const queryClient = useQueryClient();
+export function AddStaffDialog({ open, onClose, onInvited }: AddStaffDialogProps) {
   const [formData, setFormData] = useState({
     email: "",
     full_name: "",
     phone: "",
-    role: "STAFF",
-  });
-
-  const inviteStaffMutation = useMutation({
-    mutationFn: async (data: typeof formData) => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No user");
-
-      // Check if there's already a pending invitation
-      const { data: existingInvite } = await supabase
-        .from("staff_invitations")
-        .select("*")
-        .eq("hotel_id", hotelId)
-        .eq("email", data.email)
-        .eq("status", "PENDING")
-        .maybeSingle();
-
-      if (existingInvite) {
-        throw new Error("Ya existe una invitación pendiente para este email");
-      }
-
-      // Create invitation
-      const { data: newInvitation, error } = await supabase
-        .from("staff_invitations")
-        .insert({
-          hotel_id: hotelId,
-          email: data.email,
-          full_name: data.full_name,
-          phone: data.phone,
-          role: data.role,
-          invited_by: user.id,
-        })
-        .select()
-        .single();
-
-      if (error) throw error;
-
-      // Send invitation email via Edge Function
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-
-        const response = await fetch(
-          `${supabase.supabaseUrl}/functions/v1/send-staff-invitation`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${session?.access_token}`,
-            },
-            body: JSON.stringify({
-              invitation_id: newInvitation.id,
-            }),
-          }
-        );
-
-        if (!response.ok) {
-          console.error("Failed to send invitation email");
-          // Don't throw error - invitation was created successfully
-        }
-      } catch (emailError) {
-        console.error("Error sending invitation email:", emailError);
-        // Don't throw error - invitation was created successfully
-      }
-
-      return newInvitation;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["staff-invitations"] });
-      toast.success("Invitación enviada correctamente");
-      onClose();
-      setFormData({
-        email: "",
-        full_name: "",
-        phone: "",
-        role: "STAFF",
-      });
-    },
-    onError: (error: any) => {
-      toast.error(error.message || "Error al enviar invitación");
-    },
+    role: "RECEPTION",
   });
 
   const roleOptions = [
     { value: "MANAGER", label: "Manager" },
     { value: "RECEPTION", label: "Recepción" },
     { value: "HOUSEKEEPING", label: "Limpieza" },
-    { value: "MAINTENANCE", label: "Mantenimiento" },
-    { value: "STAFF", label: "Personal" },
+    { value: "SALES", label: "Ventas" },
   ];
+
+  const inviteMutation = useMutation({
+    mutationFn: () => api.inviteStaff(formData),
+    onSuccess: () => {
+      toast.success("Invitación enviada correctamente");
+      onClose();
+      onInvited?.();
+      setFormData({ email: "", full_name: "", phone: "", role: "RECEPTION" });
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || "No se pudo enviar la invitación");
+    },
+  });
+
+  const handleSubmit = () => {
+    inviteMutation.mutate();
+  };
 
   return (
     <Dialog open={open} onOpenChange={onClose}>
@@ -189,18 +125,15 @@ export function AddStaffDialog({ open, onClose, hotelId }: AddStaffDialogProps) 
           </div>
 
           <div className="flex gap-2 pt-4">
-            <Button
-              variant="outline"
-              onClick={onClose}
-              className="flex-1"
-            >
+            <Button variant="outline" onClick={onClose} className="flex-1">
               Cancelar
             </Button>
             <Button
-              onClick={() => inviteStaffMutation.mutate(formData)}
-              disabled={!formData.email || !formData.full_name || inviteStaffMutation.isPending}
-              className="flex-1 bg-blue-500 hover:bg-blue-600"
+              onClick={handleSubmit}
+              disabled={!formData.email || !formData.full_name || inviteMutation.isPending}
+              className="flex-1"
             >
+              {inviteMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
               Enviar Invitación
             </Button>
           </div>

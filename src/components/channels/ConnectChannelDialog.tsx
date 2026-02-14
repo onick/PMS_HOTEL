@@ -107,7 +107,7 @@ export default function ConnectChannelDialog({ channelCode, channelMeta, open, o
           <Button
             onClick={handleConnect}
             disabled={connectMutation.isPending}
-            className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white"
+            variant="default"
           >
             {connectMutation.isPending && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
             Conectar Canal

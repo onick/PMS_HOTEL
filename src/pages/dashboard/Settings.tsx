@@ -1,7 +1,4 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { useOutletContext } from "react-router-dom";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { HotelSettings } from "@/components/settings/HotelSettings";
 import { RoomTypesSettings } from "@/components/settings/RoomTypesSettings";
@@ -12,23 +9,7 @@ import { SubscriptionPlans } from "@/components/subscription/SubscriptionPlans";
 import { Building2, BedDouble, DoorOpen, Percent, Tag, CreditCard } from "lucide-react";
 
 export default function Settings() {
-  // Get hotel_id from user
-  const { data: userRoles } = useQuery({
-    queryKey: ["user-roles-settings"],
-    queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return null;
-
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", user.id)
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-  });
+  const { hotel } = useOutletContext<{ hotel: any }>();
 
   return (
     <div className="p-6 space-y-6">
@@ -88,9 +69,7 @@ export default function Settings() {
         </TabsContent>
 
         <TabsContent value="subscription" className="space-y-4">
-          {userRoles?.hotel_id && (
-            <SubscriptionPlans hotelId={userRoles.hotel_id} />
-          )}
+          {hotel?.id && <SubscriptionPlans hotelId={hotel.id} />}
         </TabsContent>
       </Tabs>
     </div>

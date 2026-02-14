@@ -8,7 +8,6 @@ interface PermissionGuardProps {
   module: string;
   action: string;
   resource?: string;
-  hotelId?: string;
   fallback?: ReactNode;
   showError?: boolean;
 }
@@ -17,18 +16,18 @@ export function PermissionGuard({
   children,
   module,
   action,
-  resource,
-  hotelId,
   fallback,
   showError = false,
 }: PermissionGuardProps) {
-  const { hasPermission, isLoading } = usePermissions(hotelId);
+  const { hasPermission, isLoading } = usePermissions();
 
   if (isLoading) {
     return null;
   }
 
-  const hasAccess = hasPermission(module, action, resource);
+  // Build permission string in backend format: "module.action"
+  const permissionName = `${module}.${action}`;
+  const hasAccess = hasPermission(permissionName);
 
   if (!hasAccess) {
     if (fallback) {

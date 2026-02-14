@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -10,14 +10,14 @@ import { ReservationFilters } from "./ReservationFilters";
 import { ReservationsListSkeleton } from "@/components/ui/skeletons/ReservationSkeleton";
 
 interface ReservationsListProps {
-  hotelId: string;
+  hotelId?: string;
   filters?: ReservationFilters;
   onUpdate?: () => void;
 }
 
 const ITEMS_PER_PAGE = 10;
 
-export default function ReservationsList({ hotelId, filters, onUpdate }: ReservationsListProps) {
+export default function ReservationsList({ filters, onUpdate }: ReservationsListProps) {
   const [reservations, setReservations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedReservation, setSelectedReservation] = useState<any>(null);
@@ -27,55 +27,44 @@ export default function ReservationsList({ hotelId, filters, onUpdate }: Reserva
 
   useEffect(() => {
     loadReservations();
-  }, [hotelId, filters, currentPage]);
+  }, [filters, currentPage]);
 
   useEffect(() => {
-    // Reset to first page when filters change
     setCurrentPage(1);
   }, [filters]);
 
   const loadReservations = async () => {
     setLoading(true);
 
-    const from = (currentPage - 1) * ITEMS_PER_PAGE;
-    const to = from + ITEMS_PER_PAGE - 1;
+    try {
+      const params: Record<string, string> = {
+        page: currentPage.toString(),
+        per_page: ITEMS_PER_PAGE.toString(),
+      };
 
-    let query = supabase
-      .from("reservations")
-      .select("*, room_types(name)", { count: 'exact' })
-      .eq("hotel_id", hotelId);
+      if (filters?.status && filters.status !== "all") {
+        params.status = filters.status;
+      }
 
-    // Aplicar filtros
-    if (filters?.status && filters.status !== "all") {
-      query = query.eq("status", filters.status as any);
-    }
+      if (filters?.search && filters.search.trim()) {
+        params.search = filters.search.trim();
+      }
 
-    if (filters?.search && filters.search.trim()) {
-      // Buscar en nombre o email del cliente usando filtros en JSONB
-      const searchPattern = `%${filters.search}%`;
-      query = query.or(
-        `customer->>name.ilike.${searchPattern},customer->>email.ilike.${searchPattern}`
-      );
-    }
+      if (filters?.dateRange?.from) {
+        params.from_date = filters.dateRange.from.toISOString().split("T")[0];
+      }
 
-    if (filters?.dateRange?.from) {
-      query = query.gte("check_in", filters.dateRange.from.toISOString().split("T")[0]);
-    }
+      if (filters?.dateRange?.to) {
+        params.to_date = filters.dateRange.to.toISOString().split("T")[0];
+      }
 
-    if (filters?.dateRange?.to) {
-      query = query.lte("check_out", filters.dateRange.to.toISOString().split("T")[0]);
-    }
-
-    query = query.order("created_at", { ascending: false }).range(from, to);
-
-    const { data, error, count } = await query;
-
-    if (error) {
+      const res = await api.getReservations(params);
+      setReservations(res.data || []);
+      setTotalCount(res.meta?.total || 0);
+    } catch (error) {
       console.error("Error loading reservations:", error);
-    } else {
-      setReservations(data || []);
-      setTotalCount(count || 0);
     }
+
     setLoading(false);
   };
 
@@ -95,21 +84,35 @@ export default function ReservationsList({ hotelId, filters, onUpdate }: Reserva
   };
 
   const getStatusBadge = (status: string) => {
-    const styles = {
+    const styles: Record<string, string> = {
       CONFIRMED: "bg-success/10 text-success border-success/20",
-      PENDING_PAYMENT: "bg-warning/10 text-warning border-warning/20",
+      PENDING: "bg-warning/10 text-warning border-warning/20",
       CANCELLED: "bg-destructive/10 text-destructive border-destructive/20",
+      CHECKED_IN: "bg-primary/10 text-primary border-primary/20",
+      CHECKED_OUT: "bg-muted text-muted-foreground",
+      NO_SHOW: "bg-destructive/10 text-destructive border-destructive/20",
     };
-    const labels = {
+    const labels: Record<string, string> = {
       CONFIRMED: "Confirmada",
-      PENDING_PAYMENT: "Pendiente",
+      PENDING: "Pendiente",
       CANCELLED: "Cancelada",
+      CHECKED_IN: "Check-in",
+      CHECKED_OUT: "Check-out",
+      NO_SHOW: "No Show",
     };
     return (
-      <Badge className={styles[status as keyof typeof styles]}>
-        {labels[status as keyof typeof labels]}
+      <Badge className={styles[status] || "bg-muted"}>
+        {labels[status] || status}
       </Badge>
     );
+  };
+
+  const getGuestName = (reservation: any) => {
+    return reservation.guest?.full_name || "Sin nombre";
+  };
+
+  const getRoomTypeName = (reservation: any) => {
+    return reservation.units?.[0]?.room_type?.name || "N/A";
   };
 
   if (loading) {
@@ -128,78 +131,78 @@ export default function ReservationsList({ hotelId, filters, onUpdate }: Reserva
 
   return (
     <div className="space-y-4">
-      {loading ? (
-        <div className="text-center py-8">Cargando...</div>
-      ) : (
-        <div className="grid gap-4">
-          {reservations.map((reservation) => (
-            <Card 
-              key={reservation.id} 
-              className="p-4 hover:shadow-md transition-shadow cursor-pointer"
-              onClick={() => {
-                setSelectedReservation(reservation);
-                setDetailsOpen(true);
-              }}
-            >
-              <div className="flex items-center justify-between">
-                <div className="flex-1 space-y-2">
-                  <div className="flex items-center gap-3">
-                    <h3 className="font-semibold text-lg">{reservation.customer.name}</h3>
-                    {getStatusBadge(reservation.status)}
-                  </div>
-                  
-                  <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
-                    <div className="flex items-center gap-1">
-                      <Calendar className="h-4 w-4" />
-                      <span>
-                        {formatDate(reservation.check_in)} - {formatDate(reservation.check_out)}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Users className="h-4 w-4" />
-                      <span>{reservation.guests} huéspedes</span>
-                    </div>
-                  </div>
+      <div className="grid gap-4">
+        {reservations.map((reservation) => (
+          <Card
+            key={reservation.id}
+            className="p-4 hover:shadow-md transition-shadow cursor-pointer"
+            onClick={() => {
+              setSelectedReservation(reservation);
+              setDetailsOpen(true);
+            }}
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex-1 space-y-2">
+                <div className="flex items-center gap-3">
+                  <h3 className="font-semibold text-lg">{getGuestName(reservation)}</h3>
+                  {getStatusBadge(reservation.status)}
+                  {reservation.confirmation_code && (
+                    <span className="text-xs text-muted-foreground font-mono">
+                      #{reservation.confirmation_code}
+                    </span>
+                  )}
+                </div>
 
-                  <div className="text-sm">
-                    <span className="text-muted-foreground">Habitación: </span>
-                    <span className="font-medium">{reservation.room_types?.name || "N/A"}</span>
+                <div className="flex flex-wrap gap-4 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-1">
+                    <Calendar className="h-4 w-4" />
+                    <span>
+                      {formatDate(reservation.check_in_date)} - {formatDate(reservation.check_out_date)}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Users className="h-4 w-4" />
+                    <span>{reservation.total_adults} huéspedes</span>
                   </div>
                 </div>
 
-                <div className="flex flex-col items-end gap-2">
-                  <div className="text-right">
-                    <div className="text-2xl font-bold text-primary">
-                      {formatCurrency(reservation.total_amount_cents)}
-                    </div>
-                    <div className="text-xs text-muted-foreground">{reservation.currency}</div>
-                  </div>
-                  
-                  <Button 
-                    variant="ghost" 
-                    size="sm"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedReservation(reservation);
-                      setDetailsOpen(true);
-                    }}
-                  >
-                    <Eye className="h-4 w-4 mr-1" />
-                    Ver detalles
-                    <ChevronRight className="h-4 w-4 ml-1" />
-                  </Button>
+                <div className="text-sm">
+                  <span className="text-muted-foreground">Habitación: </span>
+                  <span className="font-medium">{getRoomTypeName(reservation)}</span>
                 </div>
               </div>
-            </Card>
-          ))}
-        </div>
-      )}
 
-      {/* Pagination Controls */}
-      {!loading && totalPages > 1 && (
+              <div className="flex flex-col items-end gap-2">
+                <div className="text-right">
+                  <div className="text-2xl font-bold text-primary">
+                    {formatCurrency(reservation.total_cents)}
+                  </div>
+                  <div className="text-xs text-muted-foreground">{reservation.currency}</div>
+                </div>
+
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedReservation(reservation);
+                    setDetailsOpen(true);
+                  }}
+                >
+                  <Eye className="h-4 w-4 mr-1" />
+                  Ver detalles
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      {totalPages > 1 && (
         <div className="flex items-center justify-between px-2 pt-4">
           <div className="text-sm text-muted-foreground">
-            Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, totalCount)} of {totalCount} reservations
+            Mostrando {((currentPage - 1) * ITEMS_PER_PAGE) + 1} a {Math.min(currentPage * ITEMS_PER_PAGE, totalCount)} de {totalCount} reservas
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -209,7 +212,7 @@ export default function ReservationsList({ hotelId, filters, onUpdate }: Reserva
               disabled={currentPage === 1}
             >
               <ChevronLeft className="h-4 w-4" />
-              Previous
+              Anterior
             </Button>
             <div className="flex items-center gap-1">
               {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
@@ -242,7 +245,7 @@ export default function ReservationsList({ hotelId, filters, onUpdate }: Reserva
               onClick={() => handlePageChange(currentPage + 1)}
               disabled={currentPage === totalPages}
             >
-              Next
+              Siguiente
               <ChevronRight className="h-4 w-4" />
             </Button>
           </div>

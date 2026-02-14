@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Users, Star, TrendingUp, Calendar } from "lucide-react";
 
@@ -7,32 +7,22 @@ export default function CRMStats() {
   const { data: stats } = useQuery({
     queryKey: ["crm-stats"],
     queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
-        .single();
+      const res = await api.getGuests({ per_page: "1000" });
+      const guests: any[] = res.data || [];
 
-      if (!userRoles) return null;
+      const totalGuests = guests.length;
+      const vipGuests = guests.filter((g) => g.vip_status).length;
+      const repeatGuests = guests.filter((g) => (g.total_stays || 0) > 1).length;
 
-      const { data: guests } = await supabase
-        .from("guests")
-        .select("*")
-        .eq("hotel_id", userRoles.hotel_id);
-
-      const totalGuests = guests?.length || 0;
-      const vipGuests = guests?.filter((g) => g.vip_status).length || 0;
-      const repeatGuests = guests?.filter((g) => (g.total_stays || 0) > 1).length || 0;
-      
-      const avgLifetimeValue = guests && guests.length > 0
-        ? guests.reduce((sum, g) => sum + (g.total_spent_cents || 0), 0) / guests.length / 100
+      const avgLifetimeValue = totalGuests > 0
+        ? guests.reduce((sum, g) => sum + (g.total_spent_cents || 0), 0) / totalGuests / 100
         : 0;
 
       const thisMonth = new Date();
       thisMonth.setDate(1);
-      const newGuestsThisMonth = guests?.filter(
+      const newGuestsThisMonth = guests.filter(
         (g) => new Date(g.created_at) >= thisMonth
-      ).length || 0;
+      ).length;
 
       return {
         totalGuests,
@@ -72,7 +62,7 @@ export default function CRMStats() {
     },
     {
       title: "Valor Promedio",
-      value: `$${stats?.avgLifetimeValue.toFixed(0) || 0}`,
+      value: `$${stats?.avgLifetimeValue?.toFixed(0) || 0}`,
       icon: Calendar,
       color: "text-primary",
       bgColor: "bg-primary/10",

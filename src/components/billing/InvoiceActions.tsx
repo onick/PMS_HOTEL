@@ -10,7 +10,7 @@ interface InvoiceActionsProps {
 
 export default function InvoiceActions({ folio, charges }: InvoiceActionsProps) {
   const generateInvoicePDF = () => {
-    const reservation = folio.reservations?.[0];
+    const reservation = folio.reservation;
     if (!reservation) return;
 
     // Calcular totales
@@ -54,16 +54,15 @@ export default function InvoiceActions({ folio, charges }: InvoiceActionsProps) 
     <div class="info-grid">
       <div class="info-box">
         <h3>DATOS DEL HUÉSPED / GUEST INFORMATION</h3>
-        <p><strong>Nombre:</strong> ${reservation.customer.name}</p>
-        <p><strong>Email:</strong> ${reservation.customer.email || 'N/A'}</p>
-        <p><strong>Teléfono:</strong> ${reservation.customer.phone || 'N/A'}</p>
+        <p><strong>Nombre:</strong> ${reservation.guest?.full_name || 'N/A'}</p>
+        <p><strong>Email:</strong> ${reservation.guest?.email || 'N/A'}</p>
+        <p><strong>Teléfono:</strong> ${reservation.guest?.phone || 'N/A'}</p>
       </div>
       <div class="info-box">
         <h3>DETALLES DE LA RESERVA / BOOKING DETAILS</h3>
-        <p><strong>Habitación:</strong> ${reservation.room_types?.name}</p>
-        <p><strong>Check-in:</strong> ${formatDate(reservation.check_in)}</p>
-        <p><strong>Check-out:</strong> ${formatDate(reservation.check_out)}</p>
-        <p><strong>Huéspedes:</strong> ${reservation.guests}</p>
+        <p><strong>Habitación:</strong> ${reservation.units?.[0]?.room_type?.name || 'N/A'}</p>
+        <p><strong>Check-in:</strong> ${formatDate(reservation.check_in_date)}</p>
+        <p><strong>Check-out:</strong> ${formatDate(reservation.check_out_date)}</p>
       </div>
     </div>
   </div>
@@ -153,7 +152,7 @@ export default function InvoiceActions({ folio, charges }: InvoiceActionsProps) 
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Factura-${reservation.customer.name.replace(/\s/g, '-')}-${new Date().toISOString().split('T')[0]}.html`;
+    a.download = `Factura-${(reservation.guest?.full_name || 'huesped').replace(/\s/g, '-')}-${new Date().toISOString().split('T')[0]}.html`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

@@ -96,7 +96,7 @@ const NewReservationDialog = () => {
         phone: formData.phone || undefined,
       });
 
-      const guestId = guestRes.data.id;
+      const guestId = guestRes.guest.id;
 
       // Step 2: Create reservation with guest_id
       return api.createReservation({

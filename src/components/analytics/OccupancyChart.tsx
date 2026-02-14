@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { Calendar } from "lucide-react";
 
 export default function OccupancyChart() {
@@ -18,51 +18,17 @@ export default function OccupancyChart() {
   const { data: occupancyData } = useQuery({
     queryKey: ["occupancy-chart", period],
     queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
-        .single();
-
-      if (!userRoles) return [];
-
       const days = parseInt(period);
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - days);
+      const to = new Date().toISOString().split("T")[0];
+      const from = new Date(Date.now() - days * 86400000).toISOString().split("T")[0];
 
-      // Obtener inventario y reservas
-      const { data: inventory } = await supabase
-        .from("inventory_by_day")
-        .select("*")
-        .eq("hotel_id", userRoles.hotel_id)
-        .gte("day", startDate.toISOString().split("T")[0])
-        .order("day");
+      const res = await api.getOccupancyReport(from, to);
+      const data = res.data;
 
-      if (!inventory) return [];
-
-      // Agrupar por día
-      const dailyData = inventory.reduce((acc: any[], item: any) => {
-        const existing = acc.find((d) => d.day === item.day);
-        if (existing) {
-          existing.total += item.total;
-          existing.reserved += item.reserved;
-          existing.holds += item.holds;
-        } else {
-          acc.push({
-            day: item.day,
-            total: item.total,
-            reserved: item.reserved,
-            holds: item.holds,
-          });
-        }
-        return acc;
-      }, []);
-
-      // Calcular ocupación
-      return dailyData.map((d) => ({
-        fecha: new Date(d.day).toLocaleDateString("es", { month: "short", day: "numeric" }),
-        ocupacion: d.total > 0 ? Math.round(((d.reserved + d.holds) / d.total) * 100) : 0,
-        disponible: d.total > 0 ? Math.round(((d.total - d.reserved - d.holds) / d.total) * 100) : 100,
+      return (data.daily || []).map((item: any) => ({
+        fecha: new Date(item.date).toLocaleDateString("es", { month: "short", day: "numeric" }),
+        ocupacion: item.occupancy_rate ?? 0,
+        disponible: item.occupancy_rate != null ? 100 - item.occupancy_rate : 100,
       }));
     },
   });

@@ -148,6 +148,12 @@ export function RoomTypesSettings() {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    const baseOcc = parseInt(formData.base_occupancy) || 0;
+    const maxOcc = parseInt(formData.max_occupancy) || 0;
+    if (baseOcc > maxOcc) {
+      toast.error("La ocupación máxima debe ser mayor o igual a la ocupación base");
+      return;
+    }
     if (editingType) {
       updateMutation.mutate({ ...formData, id: editingType.id });
     } else {
@@ -167,6 +173,20 @@ export function RoomTypesSettings() {
       currency,
     }).format(cents / 100);
   };
+
+  const parsedRate = parseFloat(formData.base_rate || "0");
+  const parsedBaseOccupancy = parseInt(formData.base_occupancy || "0");
+  const parsedMaxOccupancy = parseInt(formData.max_occupancy || "0");
+  const hasOccupancyError = parsedBaseOccupancy > parsedMaxOccupancy;
+  const isSubmitting = createMutation.isPending || updateMutation.isPending;
+  const isSubmitDisabled =
+    isSubmitting ||
+    !formData.name.trim() ||
+    !formData.code.trim() ||
+    !formData.base_rate.trim() ||
+    Number.isNaN(parsedRate) ||
+    parsedRate < 0 ||
+    hasOccupancyError;
 
   return (
     <Card>
@@ -194,37 +214,43 @@ export function RoomTypesSettings() {
                 Nuevo Tipo
               </Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="sm:max-w-[640px]">
               <DialogHeader>
                 <DialogTitle>
                   {editingType ? "Editar Tipo de Habitación" : "Nuevo Tipo de Habitación"}
                 </DialogTitle>
                 <DialogDescription>
-                  {editingType ? "Modifica" : "Crea"} un tipo de habitación
+                  {editingType ? "Actualiza la configuración comercial y operativa del tipo" : "Define el tipo de habitación y su configuración base"}
                 </DialogDescription>
               </DialogHeader>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Nombre</Label>
-                    <Input
-                      id="name"
-                      required
-                      placeholder="Ej: Doble Estándar"
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    />
+              <form onSubmit={handleSubmit} className="space-y-5">
+                <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Datos básicos
                   </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="code">Código</Label>
-                    <Input
-                      id="code"
-                      required
-                      placeholder="Ej: DBL"
-                      maxLength={10}
-                      value={formData.code}
-                      onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
-                    />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="name">Nombre</Label>
+                      <Input
+                        id="name"
+                        required
+                        placeholder="Ej: Doble Estándar"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="code">Código</Label>
+                      <Input
+                        id="code"
+                        required
+                        placeholder="Ej: DBL"
+                        maxLength={10}
+                        value={formData.code}
+                        onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
+                      />
+                      <p className="text-xs text-muted-foreground">Código corto para tablas y reportes.</p>
+                    </div>
                   </div>
                 </div>
 
@@ -232,57 +258,91 @@ export function RoomTypesSettings() {
                   <Label htmlFor="description">Descripción</Label>
                   <Textarea
                     id="description"
-                    placeholder="Descripción del tipo de habitación"
+                    placeholder="Aspectos destacados, amenities y notas de venta"
+                    rows={4}
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="base_rate">Tarifa Base ({currency})</Label>
-                  <Input
-                    id="base_rate"
-                    type="number"
-                    required
-                    min="0"
-                    step="0.01"
-                    placeholder="Ej: 1200"
-                    value={formData.base_rate}
-                    onChange={(e) => setFormData({ ...formData, base_rate: e.target.value })}
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
+                  <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                    Configuración comercial
+                  </div>
                   <div className="space-y-2">
-                    <Label htmlFor="base_occupancy">Ocupación Base</Label>
+                    <Label htmlFor="base_rate">Tarifa Base ({currency})</Label>
                     <Input
-                      id="base_occupancy"
+                      id="base_rate"
                       type="number"
                       required
-                      min="1"
-                      placeholder="Ej: 2"
-                      value={formData.base_occupancy}
-                      onChange={(e) => setFormData({ ...formData, base_occupancy: e.target.value })}
+                      min="0"
+                      step="0.01"
+                      placeholder="Ej: 1200"
+                      value={formData.base_rate}
+                      onChange={(e) => setFormData({ ...formData, base_rate: e.target.value })}
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="max_occupancy">Ocupación Máxima</Label>
-                    <Input
-                      id="max_occupancy"
-                      type="number"
-                      required
-                      min="1"
-                      placeholder="Ej: 4"
-                      value={formData.max_occupancy}
-                      onChange={(e) => setFormData({ ...formData, max_occupancy: e.target.value })}
-                    />
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="base_occupancy">Ocupación Base</Label>
+                      <Input
+                        id="base_occupancy"
+                        type="number"
+                        required
+                        min="1"
+                        placeholder="Ej: 2"
+                        value={formData.base_occupancy}
+                        onChange={(e) => setFormData({ ...formData, base_occupancy: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="max_occupancy">Ocupación Máxima</Label>
+                      <Input
+                        id="max_occupancy"
+                        type="number"
+                        required
+                        min="1"
+                        placeholder="Ej: 4"
+                        value={formData.max_occupancy}
+                        onChange={(e) => setFormData({ ...formData, max_occupancy: e.target.value })}
+                      />
+                    </div>
                   </div>
+                  {hasOccupancyError && (
+                    <p className="text-xs text-destructive">
+                      La ocupación máxima debe ser mayor o igual a la ocupación base.
+                    </p>
+                  )}
                 </div>
 
-                <DialogFooter>
-                  <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
-                    {createMutation.isPending || updateMutation.isPending ? "Guardando..." : editingType ? "Actualizar" : "Crear"}
+                <div className="flex flex-wrap items-center gap-2 rounded-md border bg-background p-3 text-sm">
+                  <Badge variant="outline">
+                    Tarifa: {Number.isFinite(parsedRate) ? formatCurrency(Math.round(parsedRate * 100)) : "-"}
+                  </Badge>
+                  <Badge variant="outline">
+                    Ocupación: {parsedBaseOccupancy || 0} - {parsedMaxOccupancy || 0} pers.
+                  </Badge>
+                  <Badge variant="outline">
+                    Código: {formData.code || "---"}
+                  </Badge>
+                </div>
+
+                <DialogFooter className="gap-2 sm:gap-0">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setOpen(false);
+                      setEditingType(null);
+                      resetForm();
+                    }}
+                    disabled={isSubmitting}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button type="submit" disabled={isSubmitDisabled}>
+                    {isSubmitting ? "Guardando..." : editingType ? "Actualizar Tipo" : "Crear Tipo"}
                   </Button>
                 </DialogFooter>
               </form>

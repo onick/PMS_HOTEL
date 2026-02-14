@@ -1,15 +1,13 @@
 import { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
+import { api } from '@/lib/api';
 import { useSubscriptionStore, type Subscription } from '@/store/subscriptionStore';
 
 export function useSubscription(hotelId?: string) {
   const {
     subscription,
     planLimits,
-    isLoading: storeLoading,
     setSubscription,
-    setLoading,
     canUseFeature,
     isWithinLimit,
     getRemainingLimit,
@@ -18,50 +16,50 @@ export function useSubscription(hotelId?: string) {
     needsPayment,
   } = useSubscriptionStore();
 
-  // Fetch subscription from Supabase
-  const { data: subscriptionData, isLoading: queryLoading } = useQuery({
+  const { data, isLoading } = useQuery({
     queryKey: ['subscription', hotelId],
     enabled: !!hotelId,
     queryFn: async () => {
-      if (!hotelId) return null;
-
-      const { data, error } = await supabase
-        .from('subscriptions')
-        .select('*')
-        .eq('hotel_id', hotelId)
-        .single();
-
-      if (error) {
-        console.error('Error fetching subscription:', error);
-        return null;
+      try {
+        const res = await api.getCurrentSubscription();
+        return res.data;
+      } catch (error: any) {
+        if (error?.status === 404) return null;
+        throw error;
       }
-
-      return data as Subscription;
     },
-    staleTime: 1000 * 60 * 5, // 5 minutes
   });
 
-  // Update store when subscription data changes
   useEffect(() => {
-    if (subscriptionData) {
-      setSubscription(subscriptionData);
-    }
-    setLoading(queryLoading);
-  }, [subscriptionData, queryLoading, setSubscription, setLoading]);
+    if (!data) return;
+
+    const normalized: Subscription = {
+      id: String(data.id),
+      hotelId: String(data.hotel_id),
+      plan: data.plan,
+      status: data.status,
+      currentPeriodStart: data.current_period_start || new Date().toISOString(),
+      currentPeriodEnd: data.current_period_end || new Date().toISOString(),
+      cancelAtPeriodEnd: false,
+      stripeCustomerId: data.stripe_customer_id || undefined,
+      stripeSubscriptionId: data.stripe_subscription_id || undefined,
+      trialEndsAt: data.trial_ends_at || undefined,
+    };
+
+    setSubscription(normalized);
+  }, [data, setSubscription]);
 
   return {
-    subscription,
+    subscription: subscription || null,
     planLimits,
-    isLoading: storeLoading || queryLoading,
+    isLoading,
     canUseFeature,
     isWithinLimit,
     getRemainingLimit,
     isTrialing,
     isActive,
     needsPayment,
-    
-    // Helper methods
-    plan: subscription?.plan || 'FREE',
-    status: subscription?.status,
+    plan: subscription?.plan || data?.plan || 'FREE',
+    status: subscription?.status || data?.status || 'TRIAL',
   };
 }

@@ -1,5 +1,3 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
@@ -8,14 +6,13 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Settings, Zap } from "lucide-react";
 import { toast } from "sonner";
-import { useState, useEffect } from "react";
+import { useState } from "react";
 
 interface Props {
   hotelId: string;
 }
 
 export default function RevenueSettings({ hotelId }: Props) {
-  const queryClient = useQueryClient();
   const [form, setForm] = useState({
     enable_dynamic_pricing: false,
     occupancy_weight: 70,
@@ -24,60 +21,13 @@ export default function RevenueSettings({ hotelId }: Props) {
     max_price_threshold_percent: 150,
   });
 
-  const { data: settings, isLoading } = useQuery({
-    queryKey: ["revenue-settings", hotelId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("revenue_settings")
-        .select("*")
-        .eq("hotel_id", hotelId)
-        .maybeSingle();
-
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!hotelId,
-  });
-
-  useEffect(() => {
-    if (settings) {
-      setForm({
-        enable_dynamic_pricing: settings.enable_dynamic_pricing ?? false,
-        occupancy_weight: settings.occupancy_weight ?? 70,
-        competitor_weight: settings.competitor_weight ?? 30,
-        min_price_threshold_percent: settings.min_price_threshold_percent ?? 70,
-        max_price_threshold_percent: settings.max_price_threshold_percent ?? 150,
-      });
-    }
-  }, [settings]);
-
-  const saveMutation = useMutation({
-    mutationFn: async () => {
-      const { error } = await supabase
-        .from("revenue_settings")
-        .upsert({
-          hotel_id: hotelId,
-          ...form,
-          updated_at: new Date().toISOString(),
-        });
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["revenue-settings"] });
-      toast.success("Configuración de pricing guardada");
-    },
-    onError: (error: Error) => {
-      toast.error(error.message || "Error al guardar");
-    },
-  });
-
-  if (isLoading) {
-    return <div className="text-center py-8 text-muted-foreground">Cargando configuración...</div>;
-  }
+  const handleSave = () => {
+    // TODO: Wire up when backend revenue_settings endpoint is available
+    toast.info("Configuración de pricing dinámico próximamente disponible");
+  };
 
   return (
     <div className="space-y-6">
-      {/* Dynamic Pricing Toggle */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -106,7 +56,6 @@ export default function RevenueSettings({ hotelId }: Props) {
         </CardContent>
       </Card>
 
-      {/* Weights */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -166,7 +115,6 @@ export default function RevenueSettings({ hotelId }: Props) {
         </CardContent>
       </Card>
 
-      {/* Price Thresholds */}
       <Card>
         <CardHeader>
           <CardTitle>Límites de Precio</CardTitle>
@@ -210,12 +158,8 @@ export default function RevenueSettings({ hotelId }: Props) {
             </div>
           </div>
 
-          <Button
-            onClick={() => saveMutation.mutate()}
-            disabled={saveMutation.isPending}
-            className="w-full"
-          >
-            {saveMutation.isPending ? "Guardando..." : "Guardar Configuración"}
+          <Button onClick={handleSave} className="w-full">
+            Guardar Configuración
           </Button>
         </CardContent>
       </Card>

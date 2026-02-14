@@ -1,13 +1,9 @@
-import { useState } from 'react';
 import { useSubscription } from '@/hooks/useSubscription';
 import { PLAN_LIMITS, PlanType } from '@/store/subscriptionStore';
-import { supabase } from '@/integrations/supabase/client';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { api } from '@/lib/api';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,115 +20,28 @@ interface ChangePlanModalProps {
 }
 
 const PLAN_INFO = {
-  FREE: {
-    name: 'Free',
-    price: 0,
-    icon: Shield,
-    color: 'text-muted-foreground',
-    description: 'Perfecto para empezar',
-  },
-  BASIC: {
-    name: 'Basic',
-    price: 29,
-    icon: Zap,
-    color: 'text-primary',
-    description: 'Para hoteles pequeños',
-    popular: false,
-  },
-  PRO: {
-    name: 'Pro',
-    price: 79,
-    icon: Sparkles,
-    color: 'text-success',
-    description: 'Para hoteles en crecimiento',
-    popular: true,
-  },
-  ENTERPRISE: {
-    name: 'Enterprise',
-    price: 199,
-    icon: Crown,
-    color: 'text-warning',
-    description: 'Para cadenas hoteleras',
-    popular: false,
-  },
+  FREE: { name: 'Free', price: 0, icon: Shield, color: 'text-muted-foreground', description: 'Perfecto para empezar' },
+  BASIC: { name: 'Basic', price: 29, icon: Zap, color: 'text-primary', description: 'Para hoteles pequeños', popular: false },
+  PRO: { name: 'Pro', price: 79, icon: Sparkles, color: 'text-success', description: 'Para hoteles en crecimiento', popular: true },
+  ENTERPRISE: { name: 'Enterprise', price: 199, icon: Crown, color: 'text-warning', description: 'Para cadenas hoteleras', popular: false },
 };
 
 export function ChangePlanModal({ hotelId, open, onOpenChange }: ChangePlanModalProps) {
+  const queryClient = useQueryClient();
   const { subscription, plan: currentPlan, isLoading } = useSubscription(hotelId);
-  const [upgradingToPlan, setUpgradingToPlan] = useState<PlanType | null>(null);
 
-  const handleUpgrade = async (plan: PlanType) => {
-    if (plan === 'FREE') {
-      toast.error('No puedes cambiar al plan gratuito directamente');
-      return;
-    }
-
-    if (plan === currentPlan) {
-      toast.info('Ya estás en este plan');
-      return;
-    }
-
-    setUpgradingToPlan(plan);
-
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        throw new Error('No estás autenticado');
-      }
-
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-subscription-checkout`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ plan, hotelId }),
-        }
-      );
-
-      if (!response.ok) {
-        // Try to get error message from response
-        let errorMessage = 'Error al crear checkout';
-        try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorMessage;
-        } catch (e) {
-          // If response is not JSON, use status text
-          errorMessage = `Error ${response.status}: ${response.statusText}`;
-        }
-
-        throw new Error(errorMessage);
-      }
-
-      const { url } = await response.json();
-
-      if (!url) {
-        throw new Error('No se recibió URL de checkout de Stripe');
-      }
-
-      // Redirect to Stripe Checkout
-      window.location.href = url;
-    } catch (error: any) {
-      console.error('Error upgrading plan:', error);
-
-      // More user-friendly error messages
-      let userMessage = error.message || 'Error al actualizar el plan';
-
-      if (userMessage.includes('Failed to fetch') || userMessage.includes('NetworkError')) {
-        userMessage = '⚠️ Configuración de Stripe pendiente';
-        toast.error(userMessage, {
-          description: 'La función de pagos aún no está configurada. Contacta al administrador.',
-          duration: 6000
-        });
-      } else {
-        toast.error(userMessage);
-      }
-
-      setUpgradingToPlan(null);
-    }
-  };
+  const changePlanMutation = useMutation({
+    mutationFn: (plan: PlanType) => api.changeSubscriptionPlan(plan),
+    onSuccess: () => {
+      toast.success('Plan actualizado correctamente');
+      queryClient.invalidateQueries({ queryKey: ['subscription', hotelId] });
+      queryClient.invalidateQueries({ queryKey: ['subscription'] });
+      onOpenChange(false);
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || 'No se pudo actualizar el plan');
+    },
+  });
 
   if (isLoading) {
     return (
@@ -156,7 +65,6 @@ export function ChangePlanModal({ hotelId, open, onOpenChange }: ChangePlanModal
           </DialogDescription>
         </DialogHeader>
 
-        {/* Current Plan Badge */}
         {subscription && (
           <div className="flex items-center gap-3 p-4 bg-muted/50 rounded-lg">
             <div className="flex-1">
@@ -175,7 +83,6 @@ export function ChangePlanModal({ hotelId, open, onOpenChange }: ChangePlanModal
           </div>
         )}
 
-        {/* Plans Grid */}
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
           {(Object.keys(PLAN_INFO) as PlanType[]).map((planKey) => {
             const planInfo = PLAN_INFO[planKey];
@@ -184,18 +91,12 @@ export function ChangePlanModal({ hotelId, open, onOpenChange }: ChangePlanModal
             const isCurrent = currentPlan === planKey;
 
             return (
-              <Card
-                key={planKey}
-                className={`relative ${
-                  planInfo.popular ? 'border-primary shadow-lg' : ''
-                } ${isCurrent ? 'border-2 border-primary' : ''}`}
-              >
+              <Card key={planKey} className={`relative ${planInfo.popular ? 'border-primary shadow-lg' : ''} ${isCurrent ? 'border-2 border-primary' : ''}`}>
                 {planInfo.popular && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                     <Badge className="bg-primary">Más Popular</Badge>
                   </div>
                 )}
-
                 <CardHeader className="pb-4">
                   <div className="flex items-center gap-2 mb-2">
                     <Icon className={`h-5 w-5 ${planInfo.color}`} />
@@ -203,100 +104,46 @@ export function ChangePlanModal({ hotelId, open, onOpenChange }: ChangePlanModal
                   </div>
                   <CardDescription className="text-xs">{planInfo.description}</CardDescription>
                   <div className="mt-3">
-                    <span className="text-3xl font-bold">
-                      ${planInfo.price}
-                    </span>
+                    <span className="text-3xl font-bold">${planInfo.price}</span>
                     <span className="text-sm text-muted-foreground">/mes</span>
                   </div>
                 </CardHeader>
-
                 <CardContent className="space-y-3 pb-4">
                   <Separator />
                   <ul className="space-y-1.5">
                     <li className="flex items-center gap-2 text-xs">
                       <Check className="h-3.5 w-3.5 text-success flex-shrink-0" />
-                      <span>
-                        {limits.maxRooms === -1 ? 'Habitaciones ilimitadas' : `Hasta ${limits.maxRooms} habitaciones`}
-                      </span>
+                      <span>{limits.maxRooms === -1 ? 'Habitaciones ilimitadas' : `Hasta ${limits.maxRooms} habitaciones`}</span>
                     </li>
                     <li className="flex items-center gap-2 text-xs">
                       <Check className="h-3.5 w-3.5 text-success flex-shrink-0" />
-                      <span>
-                        {limits.maxUsers === -1 ? 'Usuarios ilimitados' : `Hasta ${limits.maxUsers} usuarios`}
-                      </span>
+                      <span>{limits.maxUsers === -1 ? 'Usuarios ilimitados' : `Hasta ${limits.maxUsers} usuarios`}</span>
                     </li>
                     <li className="flex items-center gap-2 text-xs">
                       <Check className="h-3.5 w-3.5 text-success flex-shrink-0" />
-                      <span>
-                        {limits.maxReservationsPerMonth === -1
-                          ? 'Reservas ilimitadas'
-                          : `${limits.maxReservationsPerMonth} reservas/mes`}
-                      </span>
+                      <span>{limits.maxReservationsPerMonth === -1 ? 'Reservas ilimitadas' : `${limits.maxReservationsPerMonth} reservas/mes`}</span>
                     </li>
-                    {limits.hasChannelManager && (
-                      <li className="flex items-center gap-2 text-xs">
-                        <Check className="h-3.5 w-3.5 text-success flex-shrink-0" />
-                        <span>Channel Manager</span>
-                      </li>
-                    )}
-                    {limits.hasAdvancedReports && (
-                      <li className="flex items-center gap-2 text-xs">
-                        <Check className="h-3.5 w-3.5 text-success flex-shrink-0" />
-                        <span>Reportes avanzados</span>
-                      </li>
-                    )}
-                    {limits.hasPrioritySupport && (
-                      <li className="flex items-center gap-2 text-xs">
-                        <Check className="h-3.5 w-3.5 text-success flex-shrink-0" />
-                        <span>Soporte prioritario</span>
-                      </li>
-                    )}
-                    {limits.hasAPI && (
-                      <li className="flex items-center gap-2 text-xs">
-                        <Check className="h-3.5 w-3.5 text-success flex-shrink-0" />
-                        <span>Acceso API</span>
-                      </li>
-                    )}
                   </ul>
                 </CardContent>
-
                 <CardFooter className="pt-0">
                   {isCurrent ? (
-                    <Button disabled className="w-full" size="sm">
-                      Plan Actual
-                    </Button>
+                    <Button disabled className="w-full" size="sm">Plan Actual</Button>
                   ) : planKey === 'FREE' ? (
-                    <Button disabled variant="outline" className="w-full" size="sm">
-                      Plan Gratuito
-                    </Button>
+                    <Button disabled variant="outline" className="w-full" size="sm">Plan Gratuito</Button>
                   ) : (
                     <Button
-                      onClick={() => handleUpgrade(planKey)}
-                      disabled={upgradingToPlan !== null}
+                      onClick={() => changePlanMutation.mutate(planKey)}
+                      disabled={changePlanMutation.isPending}
                       className="w-full"
                       size="sm"
                     >
-                      {upgradingToPlan === planKey ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Procesando...
-                        </>
-                      ) : (
-                        'Cambiar a este plan'
-                      )}
+                      Cambiar a este plan
                     </Button>
                   )}
                 </CardFooter>
               </Card>
             );
           })}
-        </div>
-
-        {/* Footer Note */}
-        <div className="mt-4 p-4 bg-muted/30 rounded-lg">
-          <p className="text-sm text-muted-foreground text-center">
-            Los cambios de plan se aplicarán inmediatamente. Se te cobrará de forma proporcional.
-          </p>
         </div>
       </DialogContent>
     </Dialog>

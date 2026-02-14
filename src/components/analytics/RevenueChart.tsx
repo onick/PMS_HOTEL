@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
@@ -18,40 +18,17 @@ export default function RevenueChart() {
   const { data: revenueData } = useQuery({
     queryKey: ["revenue-chart", period],
     queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
-        .single();
-
-      if (!userRoles) return [];
-
       const days = parseInt(period);
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - days);
+      const to = new Date().toISOString().split("T")[0];
+      const from = new Date(Date.now() - days * 86400000).toISOString().split("T")[0];
 
-      const { data: reservations } = await supabase
-        .from("reservations")
-        .select("check_in, total_amount_cents, status")
-        .eq("hotel_id", userRoles.hotel_id)
-        .gte("check_in", startDate.toISOString().split("T")[0])
-        .in("status", ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"]);
+      const res = await api.getRevenueReport(from, to, "day");
+      const data = res.data;
 
-      if (!reservations) return [];
-
-      // Agrupar por día
-      const dailyRevenue = reservations.reduce((acc: any, res: any) => {
-        const date = new Date(res.check_in).toLocaleDateString("es", { month: "short", day: "numeric" });
-        if (!acc[date]) {
-          acc[date] = { fecha: date, ingresos: 0 };
-        }
-        acc[date].ingresos += res.total_amount_cents / 100;
-        return acc;
-      }, {});
-
-      return Object.values(dailyRevenue).sort((a: any, b: any) => 
-        new Date(a.fecha).getTime() - new Date(b.fecha).getTime()
-      );
+      return (data.data || []).map((item: any) => ({
+        fecha: new Date(item.period).toLocaleDateString("es", { month: "short", day: "numeric" }),
+        ingresos: item.total_revenue_cents / 100,
+      }));
     },
   });
 

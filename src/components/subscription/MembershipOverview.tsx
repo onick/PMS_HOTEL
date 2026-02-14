@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { CreditCard, Calendar, ChevronRight, Shield, Sparkles, Crown, Zap, Package } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 
@@ -20,57 +19,26 @@ const PLAN_INFO = {
   ENTERPRISE: { name: 'Enterprise', icon: Crown, color: 'text-warning' },
 };
 
-const STATUS_BADGE = {
-  TRIAL: { label: 'Período de Prueba', variant: 'default' as const },
-  ACTIVE: { label: 'Activo', variant: 'default' as const },
-  PAST_DUE: { label: 'Pago Vencido', variant: 'destructive' as const },
-  CANCELED: { label: 'Cancelado', variant: 'secondary' as const },
-  INCOMPLETE: { label: 'Incompleto', variant: 'secondary' as const },
-  INCOMPLETE_EXPIRED: { label: 'Expirado', variant: 'destructive' as const },
+const STATUS_BADGE: Record<string, { label: string; variant: 'default' | 'destructive' | 'secondary' }> = {
+  TRIAL: { label: 'Período de Prueba', variant: 'default' },
+  ACTIVE: { label: 'Activo', variant: 'default' },
+  PAST_DUE: { label: 'Pago Vencido', variant: 'destructive' },
+  CANCELED: { label: 'Cancelado', variant: 'secondary' },
+  INCOMPLETE: { label: 'Incompleto', variant: 'secondary' },
+  INCOMPLETE_EXPIRED: { label: 'Expirado', variant: 'destructive' },
 };
 
 export function MembershipOverview({ hotelId, onChangePlan }: MembershipOverviewProps) {
   const navigate = useNavigate();
   const { subscription, plan: currentPlan, isLoading } = useSubscription(hotelId);
 
-  const handleManagePaymentMethod = async () => {
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) throw new Error('No estás autenticado');
-
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-customer-portal`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${session.access_token}`,
-          },
-          body: JSON.stringify({ hotelId }),
-        }
-      );
-
-      if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || 'Error al abrir portal');
-      }
-
-      const { url } = await response.json();
-      window.location.href = url;
-    } catch (error: any) {
-      console.error('Error opening customer portal:', error);
-      toast.error(error.message || 'Error al abrir el portal de cliente');
-    }
+  const handleManagePaymentMethod = () => {
+    toast.info('Gestión de pagos próximamente disponible');
   };
 
   const handleChangePlan = () => {
     if (onChangePlan) {
       onChangePlan();
-    } else {
-      const plansSection = document.getElementById('plans-section');
-      if (plansSection) {
-        plansSection.scrollIntoView({ behavior: 'smooth' });
-      }
     }
   };
 
@@ -85,14 +53,6 @@ export function MembershipOverview({ hotelId, onChangePlan }: MembershipOverview
   const planInfo = PLAN_INFO[currentPlan as keyof typeof PLAN_INFO] || PLAN_INFO.FREE;
   const PlanIcon = planInfo.icon;
   const statusInfo = STATUS_BADGE[subscription.status as keyof typeof STATUS_BADGE];
-
-  const formatDate = (date: string) => {
-    return new Date(date).toLocaleDateString('es-ES', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    });
-  };
 
   return (
     <div className="space-y-4">
@@ -110,14 +70,14 @@ export function MembershipOverview({ hotelId, onChangePlan }: MembershipOverview
           <div className="flex items-start justify-between mb-6">
             <div>
               <Badge className="mb-2" variant={statusInfo?.variant || 'default'}>
-                Miembro desde {new Date(subscription.created_at).toLocaleDateString('es-ES', { month: 'long', year: 'numeric' })}
+                Miembro activo
               </Badge>
               <div className="flex items-center gap-3">
                 <PlanIcon className={`h-8 w-8 ${planInfo.color}`} />
                 <div>
                   <h2 className="text-2xl font-bold">{planInfo.name}</h2>
                   <p className="text-sm text-muted-foreground">
-                    Próximo pago: {formatDate(subscription.current_period_end)}
+                    Plan completo con todas las funcionalidades
                   </p>
                 </div>
               </div>
@@ -127,25 +87,11 @@ export function MembershipOverview({ hotelId, onChangePlan }: MembershipOverview
             )}
           </div>
 
-          {subscription.stripe_customer_id && (
-            <>
-              <div className="flex items-center gap-2 text-sm">
-                <CreditCard className="h-4 w-4 text-muted-foreground" />
-                <span className="text-muted-foreground">Método de pago configurado</span>
-              </div>
+          <Separator className="my-6" />
 
-              <Separator className="my-6" />
-
-              <Button
-                variant="outline"
-                className="w-full justify-between"
-                onClick={handleManagePaymentMethod}
-              >
-                <span>Gestionar membresía</span>
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-            </>
-          )}
+          <p className="text-sm text-muted-foreground">
+            Gestión de pagos y suscripciones próximamente disponible
+          </p>
         </CardContent>
       </Card>
 

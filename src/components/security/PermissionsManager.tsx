@@ -1,80 +1,20 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Lock, Users, Shield } from "lucide-react";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 
 export default function PermissionsManager() {
-  const { data: permissions } = useQuery({
-    queryKey: ["permissions"],
+  // Use the API permissions endpoint
+  const { data: permissionsData } = useQuery({
+    queryKey: ["api-permissions"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("permissions")
-        .select("*")
-        .order("module")
-        .order("action");
-
-      if (error) throw error;
-      return data;
+      const res = await api.getPermissions();
+      return res.data;
     },
   });
-
-  const { data: rolePermissions } = useQuery({
-    queryKey: ["role-permissions"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("role_permissions")
-        .select(`
-          *,
-          permission:permission_id(module, action, resource, description)
-        `);
-
-      if (error) throw error;
-      return data;
-    },
-  });
-
-  // Agrupar permisos por módulo
-  const groupedPermissions = permissions?.reduce((acc: any, perm) => {
-    if (!acc[perm.module]) acc[perm.module] = [];
-    acc[perm.module].push(perm);
-    return acc;
-  }, {});
-
-  // Verificar si un rol tiene un permiso
-  const roleHasPermission = (role: string, permId: string) => {
-    return rolePermissions?.some(
-      (rp: any) => rp.role === role && rp.permission_id === permId
-    );
-  };
 
   const roles = ["RECEPTION", "HOUSEKEEPING", "SALES", "MANAGER", "HOTEL_OWNER", "SUPER_ADMIN"];
-
-  const moduleIcons: Record<string, any> = {
-    reservations: "📅",
-    crm: "👥",
-    billing: "💰",
-    housekeeping: "🧹",
-    admin: "⚙️",
-  };
-
-  const actionColors: Record<string, string> = {
-    create: "bg-success",
-    read: "bg-front-desk",
-    update: "bg-warning",
-    delete: "bg-destructive",
-    export: "bg-channels",
-    assign: "bg-primary",
-    manage: "bg-purple-500",
-  };
 
   return (
     <div className="space-y-6">
@@ -89,63 +29,29 @@ export default function PermissionsManager() {
           </p>
         </CardHeader>
         <CardContent>
-          {Object.entries(groupedPermissions || {}).map(([module, perms]: [string, any]) => (
-            <div key={module} className="mb-8">
-              <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                <span className="text-2xl">{moduleIcons[module] || "📦"}</span>
-                {module.toUpperCase()}
-              </h3>
-
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Permiso</TableHead>
-                      <TableHead>Acción</TableHead>
-                      {roles.map((role) => (
-                        <TableHead key={role} className="text-center">
-                          {role}
-                        </TableHead>
-                      ))}
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {perms.map((perm: any) => (
-                      <TableRow key={perm.id}>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{perm.description}</div>
-                            {perm.resource && (
-                              <div className="text-xs text-muted-foreground">
-                                Recurso: {perm.resource}
-                              </div>
-                            )}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant="outline"
-                            className={`${actionColors[perm.action] || ""} text-white`}
-                          >
-                            {perm.action}
-                          </Badge>
-                        </TableCell>
-                        {roles.map((role) => (
-                          <TableCell key={role} className="text-center">
-                            {roleHasPermission(role, perm.id) ? (
-                              <Shield className="h-5 w-5 text-success mx-auto" />
-                            ) : (
-                              <span className="text-muted-foreground">-</span>
-                            )}
-                          </TableCell>
-                        ))}
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+          {permissionsData ? (
+            <div className="p-4 bg-muted/50 rounded-lg">
+              <p className="text-sm text-muted-foreground mb-4">
+                Permisos del usuario actual:
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {Array.isArray(permissionsData) && permissionsData.map((perm: any, idx: number) => (
+                  <Badge key={idx} variant="outline" className="text-xs">
+                    {typeof perm === 'string' ? perm : perm.name || perm.action || JSON.stringify(perm)}
+                  </Badge>
+                ))}
+                {!Array.isArray(permissionsData) && (
+                  <p className="text-xs text-muted-foreground">
+                    Permisos cargados correctamente
+                  </p>
+                )}
               </div>
             </div>
-          ))}
+          ) : (
+            <p className="text-center py-8 text-muted-foreground">
+              Cargando permisos...
+            </p>
+          )}
         </CardContent>
       </Card>
 

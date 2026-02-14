@@ -104,14 +104,13 @@ export default function Reservations() {
         </TabsList>
 
         <TabsContent value="timeline">
-          <ReservationsTimeline hotelId={hotel.id} onUpdate={handleReservationUpdate} />
+          <ReservationsTimeline onUpdate={handleReservationUpdate} />
         </TabsContent>
 
         <TabsContent value="list" className="space-y-4">
           <ReservationFilters onFilterChange={handleFilterChange} />
           <ReservationsList
             key={refreshKey}
-            hotelId={hotel.id}
             filters={filters}
             onUpdate={handleReservationUpdate}
           />

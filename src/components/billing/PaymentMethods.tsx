@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,7 +14,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { CreditCard, Banknote, DollarSign, Building2 } from "lucide-react";
 import { toast } from "sonner";
-import { PaymentDialog } from "@/components/payments/PaymentDialog";
 
 interface PaymentMethodsProps {
   folio: any;
@@ -26,13 +25,11 @@ export default function PaymentMethods({ folio, onPaymentComplete }: PaymentMeth
   const [paymentMethod, setPaymentMethod] = useState<string>("");
   const [amount, setAmount] = useState<string>("");
   const [transactionId, setTransactionId] = useState<string>("");
-  const [showStripeDialog, setShowStripeDialog] = useState(false);
 
   const paymentMethods = [
-    { id: "cash", name: "Efectivo", icon: Banknote },
-    { id: "card", name: "Tarjeta de Crédito/Débito", icon: CreditCard },
-    { id: "transfer", name: "Transferencia Bancaria", icon: Building2 },
-    { id: "stripe", name: "Stripe (Online)", icon: DollarSign },
+    { id: "cash", provider: "cash", name: "Efectivo", icon: Banknote },
+    { id: "card", provider: "card_terminal", name: "Tarjeta de Crédito/Débito", icon: CreditCard },
+    { id: "transfer", provider: "bank_transfer", name: "Transferencia Bancaria", icon: Building2 },
   ];
 
   const processPaymentMutation = useMutation({
@@ -48,42 +45,30 @@ export default function PaymentMethods({ folio, onPaymentComplete }: PaymentMeth
         throw new Error("El monto excede el balance pendiente");
       }
 
-      // Registrar el pago como cargo negativo
-      const { error: chargeError } = await supabase
-        .from("folio_charges")
-        .insert({
-          folio_id: folio.id,
-          description: `Pago - ${paymentMethods.find(p => p.id === paymentMethod)?.name}${transactionId ? ` - Ref: ${transactionId}` : ""}`,
-          amount_cents: -amountCents,
-        });
+      const method = paymentMethods.find(m => m.id === paymentMethod);
 
-      if (chargeError) throw chargeError;
-
-      // Actualizar balance del folio
-      const newBalance = folio.balance_cents - amountCents;
-      const { error: folioError } = await supabase
-        .from("folios")
-        .update({ balance_cents: Math.max(0, newBalance) })
-        .eq("id", folio.id);
-
-      if (folioError) throw folioError;
-
-      return { newBalance };
+      return api.recordPayment(folio.id, {
+        provider: method?.provider || paymentMethod,
+        amount_cents: amountCents,
+        description: `Pago - ${method?.name || paymentMethod}`,
+        reference_number: transactionId || undefined,
+      });
     },
     onSuccess: (data) => {
       toast.success("Pago procesado correctamente");
       setAmount("");
       setPaymentMethod("");
       setTransactionId("");
-      queryClient.invalidateQueries({ queryKey: ["folio-charges"] });
+      queryClient.invalidateQueries({ queryKey: ["folio-details"] });
       queryClient.invalidateQueries({ queryKey: ["active-folios"] });
       queryClient.invalidateQueries({ queryKey: ["billing-stats"] });
-      if (data.newBalance === 0) {
+      queryClient.invalidateQueries({ queryKey: ["recent-transactions"] });
+      if (data.folio_balance_cents === 0) {
         onPaymentComplete();
       }
     },
     onError: (error: any) => {
-      toast.error("Error al procesar pago: " + error.message);
+      toast.error(error.message || "Error al procesar pago");
     },
   });
 
@@ -92,75 +77,24 @@ export default function PaymentMethods({ folio, onPaymentComplete }: PaymentMeth
       toast.error("Selecciona un método de pago");
       return;
     }
-
     if (!amount) {
       toast.error("Ingresa el monto a pagar");
       return;
     }
-
-    // Si es Stripe, abrir el dialog de pago
-    if (paymentMethod === "stripe") {
-      setShowStripeDialog(true);
-      return;
-    }
-
-    // Para otros métodos, procesar directamente
     processPaymentMutation.mutate();
-  };
-
-  const handleStripePaymentSuccess = async () => {
-    const paymentAmount = parseFloat(amount);
-    const amountCents = Math.round(paymentAmount * 100);
-
-    try {
-      // Registrar el pago como cargo negativo
-      const { error: chargeError } = await supabase
-        .from("folio_charges")
-        .insert({
-          folio_id: folio.id,
-          description: `Pago - Stripe (Online)`,
-          amount_cents: -amountCents,
-        });
-
-      if (chargeError) throw chargeError;
-
-      // Actualizar balance del folio
-      const newBalance = folio.balance_cents - amountCents;
-      const { error: folioError } = await supabase
-        .from("folios")
-        .update({ balance_cents: Math.max(0, newBalance) })
-        .eq("id", folio.id);
-
-      if (folioError) throw folioError;
-
-      toast.success("Pago procesado correctamente");
-      setAmount("");
-      setPaymentMethod("");
-      setShowStripeDialog(false);
-      queryClient.invalidateQueries({ queryKey: ["folio-charges"] });
-      queryClient.invalidateQueries({ queryKey: ["active-folios"] });
-      queryClient.invalidateQueries({ queryKey: ["billing-stats"] });
-
-      if (newBalance === 0) {
-        onPaymentComplete();
-      }
-    } catch (error: any) {
-      toast.error("Error al registrar pago: " + error.message);
-    }
   };
 
   const balance = folio.balance_cents / 100;
 
   return (
-    <>
-      <Card className="border-success/20 bg-success/5">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-success">
-            <DollarSign className="h-5 w-5" />
-            Procesar Pago
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
+    <Card className="border-success/20 bg-success/5">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-success">
+          <DollarSign className="h-5 w-5" />
+          Procesar Pago
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
         <div>
           <Label>Método de Pago</Label>
           <Select value={paymentMethod} onValueChange={setPaymentMethod}>
@@ -194,7 +128,7 @@ export default function PaymentMethods({ folio, onPaymentComplete }: PaymentMeth
             max={balance}
           />
           <p className="text-xs text-muted-foreground mt-1">
-            Balance pendiente: ${balance.toFixed(2)}
+            Balance pendiente: {new Intl.NumberFormat("es-DO", { style: "currency", currency: folio.currency || "DOP" }).format(balance)}
           </p>
         </div>
 
@@ -233,19 +167,9 @@ export default function PaymentMethods({ folio, onPaymentComplete }: PaymentMeth
           className="w-full bg-success hover:bg-success/90"
           size="lg"
         >
-          {processPaymentMutation.isPending ? "Procesando..." : paymentMethod === "stripe" ? "Ir a Pago Seguro" : "Confirmar Pago"}
+          {processPaymentMutation.isPending ? "Procesando..." : "Confirmar Pago"}
         </Button>
-        </CardContent>
-      </Card>
-
-      <PaymentDialog
-        open={showStripeDialog}
-        onOpenChange={setShowStripeDialog}
-        amount={Math.round(parseFloat(amount || "0") * 100)}
-        currency={folio.currency}
-        reservationId={folio.reservations?.[0]?.id}
-        onSuccess={handleStripePaymentSuccess}
-      />
-    </>
+      </CardContent>
+    </Card>
   );
 }

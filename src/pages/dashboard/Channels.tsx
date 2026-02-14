@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import {
-  Globe,
   RefreshCw,
   Activity,
   Settings2,
@@ -23,12 +22,7 @@ export default function Channels() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-lg">
-              <Globe className="h-6 w-6" />
-            </div>
-            Channel Manager
-          </h1>
+          <h1 className="text-3xl font-bold">Channel Manager</h1>
           <p className="text-muted-foreground mt-1">
             Gestión de canales OTA, sincronización y mappings
           </p>
@@ -37,7 +31,7 @@ export default function Channels() {
         <Button
           onClick={() => syncAll.mutate()}
           disabled={syncAll.isPending}
-          className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white shadow-md"
+          className="bg-revenue hover:bg-revenue/90 text-white shadow-md"
         >
           <RefreshCw className={`h-4 w-4 mr-2 ${syncAll.isPending ? "animate-spin" : ""}`} />
           {syncAll.isPending ? "Sincronizando..." : "Sync All"}

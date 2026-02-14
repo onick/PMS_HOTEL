@@ -1,11 +1,6 @@
-import { useState, useEffect } from "react";
-import { Elements } from "@stripe/react-stripe-js";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { CheckoutForm } from "./CheckoutForm";
-import { stripePromise } from "@/lib/stripe";
-import { supabase } from "@/integrations/supabase/client";
-import { Loader2 } from "lucide-react";
-import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { DollarSign } from "lucide-react";
 
 interface PaymentDialogProps {
   open: boolean;
@@ -21,98 +16,50 @@ export function PaymentDialog({
   onOpenChange,
   amount,
   currency,
-  reservationId,
   onSuccess,
 }: PaymentDialogProps) {
-  const [clientSecret, setClientSecret] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-
-  useEffect(() => {
-    if (open && amount > 0) {
-      createPaymentIntent();
-    }
-  }, [open, amount]);
-
-  const createPaymentIntent = async () => {
-    setLoading(true);
-    try {
-      console.log('Creating payment intent with:', { amount, currency, reservationId });
-
-      const { data, error } = await supabase.functions.invoke('create-payment-intent', {
-        body: {
-          amount,
-          currency: currency.toLowerCase(),
-          reservationId,
-          metadata: {
-            reservationId: reservationId || 'unknown',
-          },
-        },
-      });
-
-      console.log('Payment intent response:', { data, error });
-
-      if (error) {
-        console.error('Payment intent error:', error);
-        throw error;
-      }
-
-      if (!data?.clientSecret) {
-        throw new Error('No se recibió client secret del servidor');
-      }
-
-      setClientSecret(data.clientSecret);
-    } catch (error: any) {
-      console.error('Error creating payment intent:', error);
-      const errorMessage = error.message || error.toString() || 'Error desconocido al inicializar el pago';
-      toast.error("Error al inicializar el pago: " + errorMessage);
-      onOpenChange(false);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSuccess = () => {
-    setClientSecret(null);
-    onSuccess();
-    onOpenChange(false);
-  };
-
-  const handleCancel = () => {
-    setClientSecret(null);
-    onOpenChange(false);
-  };
+  const formattedAmount = new Intl.NumberFormat("es-DO", {
+    style: "currency",
+    currency: currency || "DOP",
+  }).format(amount / 100);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>Procesar Pago</DialogTitle>
         </DialogHeader>
 
-        {loading && (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <div className="text-center py-6 space-y-4">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-success/10">
+            <DollarSign className="h-8 w-8 text-success" />
           </div>
-        )}
+          <div>
+            <p className="text-3xl font-bold">{formattedAmount}</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              Utiliza el módulo de Billing para procesar pagos mediante efectivo, tarjeta o transferencia.
+            </p>
+          </div>
+        </div>
 
-        {!loading && clientSecret && (
-          <Elements
-            stripe={stripePromise}
-            options={{
-              clientSecret,
-              appearance: {
-                theme: 'stripe',
-              },
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            className="flex-1"
+            onClick={() => onOpenChange(false)}
+          >
+            Cerrar
+          </Button>
+          <Button
+            className="flex-1 bg-success hover:bg-success/90"
+            onClick={() => {
+              onSuccess();
+              onOpenChange(false);
             }}
           >
-            <CheckoutForm
-              amount={amount}
-              currency={currency}
-              onSuccess={handleSuccess}
-              onCancel={handleCancel}
-            />
-          </Elements>
-        )}
+            Ir a Billing
+          </Button>
+        </div>
       </DialogContent>
     </Dialog>
   );

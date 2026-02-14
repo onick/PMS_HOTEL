@@ -1,106 +1,30 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { TrendingUp, TrendingDown, DollarSign, Percent, Users, Calendar } from "lucide-react";
 
 export default function AnalyticsMetrics() {
-  const { data: metrics } = useQuery({
-    queryKey: ["analytics-metrics"],
+  const { data: dashboard } = useQuery({
+    queryKey: ["manager-dashboard"],
     queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
-        .single();
-
-      if (!userRoles) return null;
-
-      const today = new Date();
-      const thisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
-      const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
-
-      // Reservas del mes actual
-      const { data: currentMonthReservations } = await supabase
-        .from("reservations")
-        .select("total_amount_cents, guests, check_in, check_out, status")
-        .eq("hotel_id", userRoles.hotel_id)
-        .gte("check_in", thisMonth.toISOString().split("T")[0])
-        .in("status", ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"]);
-
-      // Reservas del mes anterior
-      const { data: lastMonthReservations } = await supabase
-        .from("reservations")
-        .select("total_amount_cents, guests")
-        .eq("hotel_id", userRoles.hotel_id)
-        .gte("check_in", lastMonth.toISOString().split("T")[0])
-        .lte("check_in", lastMonthEnd.toISOString().split("T")[0])
-        .in("status", ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"]);
-
-      // Total de habitaciones
-      const { data: rooms } = await supabase
-        .from("rooms")
-        .select("id")
-        .eq("hotel_id", userRoles.hotel_id);
-
-      const totalRooms = rooms?.length || 1;
-
-      // Calcular métricas mes actual
-      const currentRevenue = currentMonthReservations?.reduce((sum, r) => sum + r.total_amount_cents, 0) || 0;
-      const currentBookings = currentMonthReservations?.length || 0;
-      
-      // Calcular room nights vendidas
-      const currentRoomNights = currentMonthReservations?.reduce((sum, r) => {
-        const checkIn = new Date(r.check_in);
-        const checkOut = new Date(r.check_out);
-        const nights = Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24));
-        return sum + nights;
-      }, 0) || 1;
-
-      // ADR (Average Daily Rate)
-      const adr = currentRevenue / currentRoomNights / 100;
-
-      // Ocupación estimada del mes
-      const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-      const totalAvailableRoomNights = totalRooms * daysInMonth;
-      const occupancyRate = (currentRoomNights / totalAvailableRoomNights) * 100;
-
-      // RevPAR (Revenue Per Available Room)
-      const revpar = (currentRevenue / 100) / (totalRooms * daysInMonth);
-
-      // Métricas mes anterior
-      const lastRevenue = lastMonthReservations?.reduce((sum, r) => sum + r.total_amount_cents, 0) || 1;
-      const lastBookings = lastMonthReservations?.length || 1;
-
-      // Variaciones
-      const revenueChange = ((currentRevenue - lastRevenue) / lastRevenue) * 100;
-      const bookingsChange = ((currentBookings - lastBookings) / lastBookings) * 100;
-
-      return {
-        adr,
-        revpar,
-        occupancyRate,
-        totalRevenue: currentRevenue / 100,
-        totalBookings: currentBookings,
-        revenueChange,
-        bookingsChange,
-      };
+      const res = await api.getManagerDashboard();
+      return res.data;
     },
   });
 
   const metricsData = [
     {
       title: "ADR (Tarifa Promedio)",
-      value: `$${metrics?.adr.toFixed(2) || "0.00"}`,
+      value: `$${dashboard?.kpis_30d.avg_adr || "0.00"}`,
       icon: DollarSign,
       color: "text-success",
       bgColor: "bg-success/10",
-      description: "Por noche vendida",
-      trend: null,
+      description: "Promedio últimos 30 días",
+      trend: dashboard?.trends.adr_direction === "up" ? 1 : dashboard?.trends.adr_direction === "down" ? -1 : null,
     },
     {
       title: "RevPAR",
-      value: `$${metrics?.revpar.toFixed(2) || "0.00"}`,
+      value: `$${dashboard?.kpis_30d.avg_revpar || "0.00"}`,
       icon: TrendingUp,
       color: "text-primary",
       bgColor: "bg-primary/10",
@@ -109,30 +33,30 @@ export default function AnalyticsMetrics() {
     },
     {
       title: "Ocupación",
-      value: `${metrics?.occupancyRate.toFixed(1) || "0"}%`,
+      value: `${dashboard?.kpis_30d.avg_occupancy_rate || 0}%`,
       icon: Percent,
       color: "text-analytics",
       bgColor: "bg-analytics/10",
-      description: "Del mes actual",
-      trend: null,
+      description: "Promedio últimos 30 días",
+      trend: dashboard?.trends.occupancy_direction === "up" ? 1 : dashboard?.trends.occupancy_direction === "down" ? -1 : null,
     },
     {
-      title: "Ingresos del Mes",
-      value: `$${metrics?.totalRevenue.toFixed(0) || "0"}`,
+      title: "Ingresos (30d)",
+      value: `$${dashboard?.kpis_30d.total_revenue || "0.00"}`,
       icon: Calendar,
       color: "text-billing",
       bgColor: "bg-billing/10",
-      description: `${metrics?.revenueChange >= 0 ? "+" : ""}${metrics?.revenueChange.toFixed(1) || "0"}% vs mes anterior`,
-      trend: metrics?.revenueChange,
+      description: dashboard?.trends.revenue_direction === "up" ? "Tendencia al alza" : "Tendencia a la baja",
+      trend: dashboard?.trends.revenue_direction === "up" ? 1 : -1,
     },
     {
-      title: "Reservas del Mes",
-      value: metrics?.totalBookings || 0,
+      title: "Hoy",
+      value: `${dashboard?.today.arrivals_pending || 0} llegadas`,
       icon: Users,
       color: "text-channel-manager",
       bgColor: "bg-channel-manager/10",
-      description: `${metrics?.bookingsChange >= 0 ? "+" : ""}${metrics?.bookingsChange.toFixed(1) || "0"}% vs mes anterior`,
-      trend: metrics?.bookingsChange,
+      description: `${dashboard?.today.in_house || 0} en casa, ${dashboard?.today.departures_pending || 0} salidas`,
+      trend: null,
     },
   ];
 
@@ -141,7 +65,7 @@ export default function AnalyticsMetrics() {
       {metricsData.map((metric) => {
         const Icon = metric.icon;
         const TrendIcon = metric.trend !== null ? (metric.trend >= 0 ? TrendingUp : TrendingDown) : null;
-        
+
         return (
           <Card key={metric.title}>
             <CardHeader className="flex flex-row items-center justify-between pb-2">

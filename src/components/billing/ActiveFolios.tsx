@@ -1,9 +1,7 @@
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Receipt, User, DollarSign, Home } from "lucide-react";
 import { formatDate } from "@/lib/date-utils";
 
@@ -15,37 +13,17 @@ export default function ActiveFolios({ onSelectFolio }: ActiveFoliosProps) {
   const { data: folios } = useQuery({
     queryKey: ["active-folios"],
     queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
-        .single();
-
-      if (!userRoles) return [];
-
-      const { data, error } = await supabase
-        .from("folios")
-        .select(`
-          *,
-          reservations (
-            id,
-            customer,
-            check_in,
-            check_out,
-            status,
-            room_id,
-            room_types (name),
-            rooms (room_number)
-          )
-        `)
-        .eq("hotel_id", userRoles.hotel_id)
-        .eq("reservations.status", "CHECKED_IN")
-        .order("created_at", { ascending: false });
-
-      if (error) throw error;
-      return data || [];
+      const res = await api.getFolios({ status: "open", per_page: "50" });
+      return res.data || [];
     },
   });
+
+  const formatCurrency = (cents: number, currency?: string) => {
+    return new Intl.NumberFormat("es-DO", {
+      style: "currency",
+      currency: currency || "DOP",
+    }).format(cents / 100);
+  };
 
   return (
     <Card>
@@ -58,14 +36,15 @@ export default function ActiveFolios({ onSelectFolio }: ActiveFoliosProps) {
       <CardContent>
         {!folios?.length ? (
           <p className="text-muted-foreground text-center py-8">
-            No hay huéspedes actualmente en el hotel
+            No hay folios activos
           </p>
         ) : (
           <div className="space-y-3">
             {folios.map((folio: any) => {
-              const reservation = folio.reservations?.[0];
-              const balance = folio.balance_cents / 100;
-              const roomNumber = reservation?.rooms?.room_number || "Sin asignar";
+              const reservation = folio.reservation;
+              const guestName = reservation?.guest?.full_name || "Huésped";
+              const roomNumber = reservation?.units?.[0]?.room?.number || "Sin asignar";
+              const roomTypeName = reservation?.units?.[0]?.room_type?.name;
 
               return (
                 <div
@@ -76,32 +55,30 @@ export default function ActiveFolios({ onSelectFolio }: ActiveFoliosProps) {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
                       <User className="h-4 w-4 text-muted-foreground" />
-                      <span className="font-medium">
-                        {reservation?.customer?.name || "Huésped"}
-                      </span>
+                      <span className="font-medium">{guestName}</span>
                       <Badge variant="outline" className="flex items-center gap-1">
                         <Home className="h-3 w-3" />
                         Hab. {roomNumber}
                       </Badge>
-                      <Badge variant="secondary">
-                        {reservation?.room_types?.name}
-                      </Badge>
+                      {roomTypeName && (
+                        <Badge variant="secondary">{roomTypeName}</Badge>
+                      )}
                     </div>
                     <div className="flex items-center gap-3 text-sm text-muted-foreground">
                       <span>
-                        {formatDate(reservation?.check_in)} - {formatDate(reservation?.check_out)}
+                        {formatDate(reservation?.check_in_date)} - {formatDate(reservation?.check_out_date)}
                       </span>
                     </div>
                   </div>
                   <div className="text-right">
                     <div className="flex items-center gap-1 text-lg font-bold">
                       <DollarSign className="h-4 w-4" />
-                      <span className={balance > 0 ? "text-destructive" : balance < 0 ? "text-success" : ""}>
-                        {Math.abs(balance).toFixed(2)}
+                      <span className={folio.balance_cents > 0 ? "text-destructive" : folio.balance_cents < 0 ? "text-success" : ""}>
+                        {formatCurrency(Math.abs(folio.balance_cents), folio.currency)}
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground">
-                      {balance > 0 ? "Pendiente" : balance < 0 ? "A favor" : "Pagado"} • {folio.currency}
+                      {folio.balance_cents > 0 ? "Pendiente" : folio.balance_cents < 0 ? "A favor" : "Pagado"} · {folio.currency}
                     </p>
                   </div>
                 </div>

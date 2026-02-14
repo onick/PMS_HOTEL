@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -20,55 +20,10 @@ export default function RateCalendar({ hotelId }: Props) {
   const [selectedRoomType, setSelectedRoomType] = useState<string>("all");
 
   const { data: roomTypes } = useQuery({
-    queryKey: ["room-types", hotelId],
+    queryKey: ["room-types-calendar", hotelId],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("room_types")
-        .select("id, name, base_price_cents")
-        .eq("hotel_id", hotelId)
-        .order("name");
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!hotelId,
-  });
-
-  // Get inventory for the 14-day window
-  const windowStart = format(weekStart, "yyyy-MM-dd");
-  const windowEnd = format(addDays(weekStart, 13), "yyyy-MM-dd");
-
-  const { data: inventory } = useQuery({
-    queryKey: ["inventory-calendar", hotelId, windowStart, windowEnd, selectedRoomType],
-    queryFn: async () => {
-      let query = supabase
-        .from("inventory_by_day")
-        .select("*")
-        .eq("hotel_id", hotelId)
-        .gte("day", windowStart)
-        .lte("day", windowEnd);
-
-      if (selectedRoomType !== "all") {
-        query = query.eq("room_type_id", selectedRoomType);
-      }
-
-      const { data, error } = await query;
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!hotelId,
-  });
-
-  const { data: rateHistory } = useQuery({
-    queryKey: ["rate-history-calendar", hotelId, windowStart, windowEnd],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("rate_history")
-        .select("*")
-        .eq("hotel_id", hotelId)
-        .gte("date", windowStart)
-        .lte("date", windowEnd);
-      if (error) throw error;
-      return data;
+      const res = await api.getRoomTypes();
+      return (res.data || []) as any[];
     },
     enabled: !!hotelId,
   });
@@ -76,33 +31,10 @@ export default function RateCalendar({ hotelId }: Props) {
   const days = Array.from({ length: 14 }, (_, i) => addDays(weekStart, i));
   const today = new Date();
 
-  const getInventoryForDay = (day: string, roomTypeId?: string) => {
-    if (!inventory) return null;
-    return inventory.find(
-      (inv) =>
-        inv.day === day &&
-        (roomTypeId ? inv.room_type_id === roomTypeId : true),
-    );
-  };
-
-  const getRateForDay = (day: string, roomTypeId: string) => {
-    if (!rateHistory) return null;
-    return rateHistory.find(
-      (r) => r.date === day && r.room_type_id === roomTypeId,
-    );
-  };
-
-  const getOccupancyColor = (occupancyPct: number) => {
-    if (occupancyPct >= 90) return "bg-destructive/20 text-destructive border-destructive/30";
-    if (occupancyPct >= 70) return "bg-revenue/20 text-revenue border-revenue/30";
-    if (occupancyPct >= 40) return "bg-success/20 text-success border-success/30";
-    return "bg-muted text-muted-foreground";
-  };
-
   const displayTypes =
     selectedRoomType === "all"
       ? roomTypes
-      : roomTypes?.filter((rt) => rt.id === selectedRoomType);
+      : roomTypes?.filter((rt: any) => String(rt.id) === selectedRoomType);
 
   return (
     <Card>
@@ -114,7 +46,7 @@ export default function RateCalendar({ hotelId }: Props) {
               Calendario de Tarifas e Inventario
             </CardTitle>
             <CardDescription>
-              Vista de 14 días con disponibilidad y precios por tipo de habitación
+              Vista de 14 días con precios por tipo de habitación
             </CardDescription>
           </div>
           <div className="flex items-center gap-2">
@@ -124,8 +56,8 @@ export default function RateCalendar({ hotelId }: Props) {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Todos los tipos</SelectItem>
-                {roomTypes?.map((rt) => (
-                  <SelectItem key={rt.id} value={rt.id}>
+                {roomTypes?.map((rt: any) => (
+                  <SelectItem key={rt.id} value={String(rt.id)}>
                     {rt.name}
                   </SelectItem>
                 ))}
@@ -142,9 +74,7 @@ export default function RateCalendar({ hotelId }: Props) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() =>
-                  setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))
-                }
+                onClick={() => setWeekStart(startOfWeek(new Date(), { weekStartsOn: 1 }))}
               >
                 Hoy
               </Button>
@@ -177,9 +107,7 @@ export default function RateCalendar({ hotelId }: Props) {
                       <div className="font-medium">
                         {format(day, "EEE", { locale: es })}
                       </div>
-                      <div
-                        className={`text-xs ${isToday ? "text-primary font-bold" : "text-muted-foreground"}`}
-                      >
+                      <div className={`text-xs ${isToday ? "text-primary font-bold" : "text-muted-foreground"}`}>
                         {format(day, "dd/MM")}
                       </div>
                     </th>
@@ -188,52 +116,27 @@ export default function RateCalendar({ hotelId }: Props) {
               </tr>
             </thead>
             <tbody>
-              {displayTypes?.map((roomType) => (
+              {displayTypes?.map((roomType: any) => (
                 <tr key={roomType.id} className="border-b last:border-0">
                   <td className="sticky left-0 bg-card z-10 p-2">
                     <div className="font-medium">{roomType.name}</div>
                     <div className="text-xs text-muted-foreground">
-                      Base: ${(roomType.base_price_cents / 100).toFixed(0)}
+                      Base: ${((roomType.base_price_cents || 0) / 100).toFixed(0)}
                     </div>
                   </td>
                   {days.map((day) => {
                     const dayStr = format(day, "yyyy-MM-dd");
-                    const inv = getInventoryForDay(dayStr, roomType.id);
-                    const rate = getRateForDay(dayStr, roomType.id);
                     const isToday = isSameDay(day, today);
-
-                    const available = inv
-                      ? inv.total - inv.reserved - inv.holds
-                      : null;
-                    const occupancyPct = inv && inv.total > 0
-                      ? Math.round(((inv.reserved + inv.holds) / inv.total) * 100)
-                      : 0;
-                    const price = rate
-                      ? rate.price_cents
-                      : roomType.base_price_cents;
+                    const basePrice = roomType.base_price_cents || 0;
 
                     return (
                       <td
                         key={dayStr}
                         className={`text-center p-1.5 ${isToday ? "bg-primary/5" : ""}`}
                       >
-                        {inv ? (
-                          <div className="space-y-1">
-                            <div className="font-medium text-xs">
-                              ${(price / 100).toFixed(0)}
-                            </div>
-                            <Badge
-                              variant="outline"
-                              className={`text-[10px] px-1 py-0 ${getOccupancyColor(occupancyPct)}`}
-                            >
-                              {available} disp
-                            </Badge>
-                          </div>
-                        ) : (
-                          <div className="text-xs text-muted-foreground">
-                            ${(roomType.base_price_cents / 100).toFixed(0)}
-                          </div>
-                        )}
+                        <div className="text-xs text-muted-foreground">
+                          ${(basePrice / 100).toFixed(0)}
+                        </div>
                       </td>
                     );
                   })}
@@ -241,10 +144,7 @@ export default function RateCalendar({ hotelId }: Props) {
               ))}
               {(!displayTypes || displayTypes.length === 0) && (
                 <tr>
-                  <td
-                    colSpan={15}
-                    className="text-center py-8 text-muted-foreground"
-                  >
+                  <td colSpan={15} className="text-center py-8 text-muted-foreground">
                     No hay tipos de habitación configurados
                   </td>
                 </tr>
@@ -253,7 +153,6 @@ export default function RateCalendar({ hotelId }: Props) {
           </table>
         </div>
 
-        {/* Legend */}
         <div className="flex items-center gap-4 mt-4 pt-4 border-t text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <div className="w-3 h-3 rounded bg-success/20 border border-success/30" />

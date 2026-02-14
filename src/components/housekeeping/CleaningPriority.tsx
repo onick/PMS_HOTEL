@@ -1,70 +1,45 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AlertCircle, Clock, Calendar, CheckCircle2 } from "lucide-react";
-import { formatDate } from "@/lib/date-utils";
 
 export default function CleaningPriority() {
-  const today = new Date().toISOString().split("T")[0];
-
   const { data: priorities } = useQuery({
     queryKey: ["cleaning-priorities"],
     queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
-        .single();
+      // Get dirty rooms and today's arrivals in parallel
+      const [roomsRes, arrivalsRes] = await Promise.all([
+        api.getStatusGrid(),
+        api.getReservations({ status: "CONFIRMED", check_in_date: new Date().toISOString().split("T")[0] }),
+      ]);
 
-      if (!userRoles) return [];
+      const rooms: any[] = roomsRes.data || [];
+      const arrivals: any[] = arrivalsRes.data || [];
 
-      // Obtener habitaciones sucias con próximas llegadas
-      const { data: arrivals, error: arrivalsError } = await supabase
-        .from("reservations")
-        .select(`
-          *,
-          room_types (name)
-        `)
-        .eq("hotel_id", userRoles.hotel_id)
-        .eq("check_in", today)
-        .in("status", ["CONFIRMED", "PENDING_PAYMENT"]);
+      // Filter dirty rooms
+      const dirtyRooms = rooms.filter((r) => r.housekeeping_status === "DIRTY");
 
-      if (arrivalsError) throw arrivalsError;
-
-      // Obtener todas las habitaciones sucias
-      const { data: dirtyRooms, error: roomsError } = await supabase
-        .from("rooms")
-        .select(`
-          *,
-          room_types (name)
-        `)
-        .eq("hotel_id", userRoles.hotel_id)
-        .eq("status", "MAINTENANCE");
-
-      if (roomsError) throw roomsError;
-
-      // Marcar prioridad alta para habitaciones con llegadas hoy
-      const priorityList = dirtyRooms?.map((room: any) => {
-        const hasArrival = arrivals?.some(
-          (r: any) => r.room_type_id === room.room_type_id
+      // Mark priority based on today's arrivals needing that room type
+      const priorityList = dirtyRooms.map((room) => {
+        const hasArrival = arrivals.some(
+          (r: any) => r.units?.some((u: any) => u.room_type_id === room.room_type_id)
         );
-        
+
         return {
           ...room,
           priority: hasArrival ? "high" : "normal",
-          arrivalCount: arrivals?.filter(
-            (r: any) => r.room_type_id === room.room_type_id
-          ).length || 0,
+          arrivalCount: arrivals.filter(
+            (r: any) => r.units?.some((u: any) => u.room_type_id === room.room_type_id)
+          ).length,
         };
       });
 
-      // Ordenar: alta prioridad primero
-      return priorityList?.sort((a, b) => {
+      return priorityList.sort((a, b) => {
         if (a.priority === "high" && b.priority !== "high") return -1;
         if (a.priority !== "high" && b.priority === "high") return 1;
         return 0;
-      }) || [];
+      });
     },
   });
 
@@ -91,13 +66,13 @@ export default function CleaningPriority() {
               {highPriority.map((room: any) => (
                 <div
                   key={room.id}
-                  className="p-4 border-2 border-destructive/30 rounded-lg bg-destructive/5 hover:shadow-lg transition-all animate-pulse-slow"
+                  className="p-4 border-2 border-destructive/30 rounded-lg bg-destructive/5 hover:shadow-lg transition-all"
                 >
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-lg">Hab. {room.room_number}</span>
+                      <span className="font-bold text-lg">Hab. {room.number}</span>
                       <Badge variant="destructive" className="text-xs">
-                        ⚠️ Urgente
+                        Urgente
                       </Badge>
                     </div>
                   </div>
@@ -106,7 +81,7 @@ export default function CleaningPriority() {
                     {room.arrivalCount} llegada{room.arrivalCount > 1 ? "s" : ""} hoy
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    {room.room_types?.name}
+                    {room.room_type?.name}
                   </p>
                 </div>
               ))}
@@ -127,9 +102,9 @@ export default function CleaningPriority() {
                   key={room.id}
                   className="p-2 border rounded text-center"
                 >
-                  <span className="font-semibold">{room.room_number}</span>
+                  <span className="font-semibold">{room.number}</span>
                   <p className="text-xs text-muted-foreground truncate">
-                    {room.room_types?.name}
+                    {room.room_type?.name}
                   </p>
                 </div>
               ))}

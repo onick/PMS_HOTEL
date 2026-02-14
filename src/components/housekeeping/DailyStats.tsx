@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CheckCircle2, Clock, Sparkles, AlertTriangle } from "lucide-react";
 
@@ -7,26 +7,14 @@ export default function DailyStats() {
   const { data: stats } = useQuery({
     queryKey: ["housekeeping-stats"],
     queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
-        .single();
+      const res = await api.getStatusGrid();
+      const rooms: any[] = res.data || [];
 
-      if (!userRoles) return null;
-
-      const { data: rooms, error } = await supabase
-        .from("rooms")
-        .select("status")
-        .eq("hotel_id", userRoles.hotel_id);
-
-      if (error) throw error;
-
-      const total = rooms?.length || 0;
-      const clean = rooms?.filter((r) => r.status === "AVAILABLE").length || 0;
-      const dirty = rooms?.filter((r) => r.status === "MAINTENANCE").length || 0;
-      const occupied = rooms?.filter((r) => r.status === "OCCUPIED").length || 0;
-      const blocked = rooms?.filter((r) => r.status === "BLOCKED").length || 0;
+      const total = rooms.length;
+      const clean = rooms.filter((r) => r.housekeeping_status === "CLEAN").length;
+      const dirty = rooms.filter((r) => r.housekeeping_status === "DIRTY").length;
+      const occupied = rooms.filter((r) => r.occupancy_status === "OCCUPIED").length;
+      const blocked = rooms.filter((r) => r.occupancy_status === "BLOCKED" || r.housekeeping_status === "OUT_OF_ORDER").length;
 
       return {
         total,

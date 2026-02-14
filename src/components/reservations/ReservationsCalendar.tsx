@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,11 +9,11 @@ import { es } from "date-fns/locale";
 import ReservationDetails from "./ReservationDetails";
 
 interface ReservationsCalendarProps {
-  hotelId: string;
+  hotelId?: string;
   onUpdate?: () => void;
 }
 
-export default function ReservationsCalendar({ hotelId, onUpdate }: ReservationsCalendarProps) {
+export default function ReservationsCalendar({ onUpdate }: ReservationsCalendarProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [reservations, setReservations] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -22,25 +22,24 @@ export default function ReservationsCalendar({ hotelId, onUpdate }: Reservations
 
   useEffect(() => {
     loadReservations();
-  }, [hotelId, currentMonth]);
+  }, [currentMonth]);
 
   const loadReservations = async () => {
     setLoading(true);
     const start = startOfMonth(currentMonth);
     const end = endOfMonth(currentMonth);
 
-    const { data, error } = await supabase
-      .from("reservations")
-      .select("*, room_types(name)")
-      .eq("hotel_id", hotelId)
-      .or(`check_in.lte.${format(end, "yyyy-MM-dd")},check_out.gte.${format(start, "yyyy-MM-dd")}`)
-      .order("check_in", { ascending: true });
-
-    if (error) {
+    try {
+      const res = await api.getReservations({
+        from_date: format(start, "yyyy-MM-dd"),
+        to_date: format(end, "yyyy-MM-dd"),
+        per_page: "100",
+      });
+      setReservations(res.data || []);
+    } catch (error) {
       console.error("Error loading reservations:", error);
-    } else {
-      setReservations(data || []);
     }
+
     setLoading(false);
   };
 
@@ -52,21 +51,25 @@ export default function ReservationsCalendar({ hotelId, onUpdate }: Reservations
 
   const getReservationsForDay = (day: Date) => {
     return reservations.filter((reservation) => {
-      const checkIn = parseISO(reservation.check_in);
-      const checkOut = parseISO(reservation.check_out);
+      const checkIn = parseISO(reservation.check_in_date);
+      const checkOut = parseISO(reservation.check_out_date);
       return day >= checkIn && day < checkOut;
     });
   };
 
   const getStatusColor = (status: string) => {
-    const colors = {
+    const colors: Record<string, string> = {
       CONFIRMED: "bg-success/80 hover:bg-success",
-      PENDING_PAYMENT: "bg-warning/80 hover:bg-warning",
+      PENDING: "bg-warning/80 hover:bg-warning",
       CANCELLED: "bg-destructive/80 hover:bg-destructive",
       CHECKED_IN: "bg-primary/80 hover:bg-primary",
       CHECKED_OUT: "bg-muted hover:bg-muted-foreground",
     };
-    return colors[status as keyof typeof colors] || "bg-muted";
+    return colors[status] || "bg-muted";
+  };
+
+  const getGuestName = (reservation: any) => {
+    return reservation.guest?.full_name || "Sin nombre";
   };
 
   const previousMonth = () => setCurrentMonth(subMonths(currentMonth, 1));
@@ -111,15 +114,15 @@ export default function ReservationsCalendar({ hotelId, onUpdate }: Reservations
               {day}
             </div>
           ))}
-          
+
           {Array.from({ length: firstDayOfWeek }).map((_, i) => (
             <div key={`empty-${i}`} className="p-2" />
           ))}
-          
+
           {days.map((day) => {
             const dayReservations = getReservationsForDay(day);
             const isToday = isSameDay(day, new Date());
-            
+
             return (
               <div
                 key={day.toISOString()}
@@ -142,7 +145,7 @@ export default function ReservationsCalendar({ hotelId, onUpdate }: Reservations
                         setDetailsOpen(true);
                       }}
                     >
-                      {reservation.customer.name}
+                      {getGuestName(reservation)}
                     </Badge>
                   ))}
                   {dayReservations.length > 3 && (
