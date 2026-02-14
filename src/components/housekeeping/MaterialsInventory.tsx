@@ -1,5 +1,5 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,91 +8,146 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useState } from "react";
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 interface Material {
-  id: string;
+  id: number;
   name: string;
   category: string;
-  quantity: number;
-  min_quantity: number;
+  current_stock: number;
+  min_stock: number;
   unit: string;
 }
+
+const MATERIAL_CATEGORIES = [
+  { value: "CLEANING", label: "Limpieza" },
+  { value: "LINENS", label: "Lencería" },
+  { value: "AMENITIES", label: "Amenities" },
+  { value: "MAINTENANCE", label: "Mantenimiento" },
+  { value: "OTHER", label: "Otro" },
+];
+
+const UNIT_OPTIONS = [
+  { value: "unit", label: "Unidades" },
+  { value: "box", label: "Cajas" },
+  { value: "pack", label: "Paquetes" },
+  { value: "kg", label: "Kg" },
+  { value: "liter", label: "Litros" },
+];
+
+const getApiErrorMessage = (error: unknown, fallback: string): string => {
+  if (!error || typeof error !== "object") return fallback;
+
+  const maybeError = error as {
+    message?: string;
+    data?: {
+      message?: string;
+      errors?: Record<string, string[]>;
+    };
+  };
+
+  const validationMessage = maybeError.data?.errors
+    ? Object.values(maybeError.data.errors).flat().find(Boolean)
+    : null;
+
+  return validationMessage || maybeError.data?.message || maybeError.message || fallback;
+};
 
 export default function MaterialsInventory() {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
-    category: "general",
-    quantity: 0,
-    min_quantity: 10,
-    unit: "unidades"
+    category: "CLEANING",
+    current_stock: "0",
+    min_stock: "10",
+    unit: "unit",
   });
 
-  const { data: materials, isLoading } = useQuery({
-    queryKey: ["materials"],
+  const { data: materials = [], isLoading } = useQuery({
+    queryKey: ["housekeeping-materials"],
     queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id)
-        .limit(1)
-        .single();
-
-      if (!userRoles) throw new Error("No hotel found");
-
-      const { data, error } = await supabase
-        .from("materials")
-        .select("*")
-        .eq("hotel_id", userRoles.hotel_id)
-        .order("name");
-
-      if (error) throw error;
-      return data as Material[];
+      const res = await api.getInventoryItems();
+      const items = (res.data || []) as Material[];
+      return items.filter((item) =>
+        ["CLEANING", "LINENS", "AMENITIES", "MAINTENANCE", "OTHER"].includes(item.category),
+      );
     },
   });
 
-  const createMutation = useMutation({
-    mutationFn: async (data: typeof formData) => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id)
-        .limit(1)
-        .single();
-
-      if (!userRoles) throw new Error("No hotel found");
-
-      const { error } = await supabase
-        .from("materials")
-        .insert({ ...data, hotel_id: userRoles.hotel_id });
-
-      if (error) throw error;
+  const createMaterialMutation = useMutation({
+    mutationFn: async () =>
+      api.createInventoryItem({
+        name: formData.name,
+        category: formData.category,
+        unit: formData.unit,
+        current_stock: Number(formData.current_stock) || 0,
+        min_stock: Number(formData.min_stock) || 0,
+        unit_cost_cents: 0,
+      }),
+    onMutate: () => {
+      toast.loading("Guardando material...", {
+        id: "materials-create",
+        description: "Creando registro en inventario.",
+      });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["materials"] });
+      toast.success("Material agregado", {
+        id: "materials-create",
+        description: "El material ya está disponible en inventario.",
+        duration: 3500,
+      });
       setDialogOpen(false);
-      setFormData({ name: "", category: "general", quantity: 0, min_quantity: 10, unit: "unidades" });
-      toast({ title: "Material agregado correctamente" });
+      setFormData({
+        name: "",
+        category: "CLEANING",
+        current_stock: "0",
+        min_stock: "10",
+        unit: "unit",
+      });
+      queryClient.invalidateQueries({ queryKey: ["housekeeping-materials"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+    },
+    onError: (error: unknown) => {
+      toast.error("No se pudo guardar el material", {
+        id: "materials-create",
+        description: getApiErrorMessage(error, "Intenta nuevamente en unos segundos."),
+        duration: 5000,
+      });
     },
   });
 
-  const updateQuantityMutation = useMutation({
-    mutationFn: async ({ id, quantity }: { id: string; quantity: number }) => {
-      const { error } = await supabase
-        .from("materials")
-        .update({ quantity })
-        .eq("id", id);
-
-      if (error) throw error;
+  const updateStockMutation = useMutation({
+    mutationFn: async ({ itemId, delta, itemName }: { itemId: number; delta: number; itemName: string }) =>
+      api.createInventoryMovement(itemId, {
+        movement_type: delta > 0 ? "PURCHASE" : "USAGE",
+        quantity: delta,
+        notes: "Ajuste rápido desde Housekeeping",
+      }),
+    onMutate: ({ delta, itemName }) => {
+      toast.loading("Actualizando stock...", {
+        id: "materials-stock-update",
+        description: `${delta > 0 ? "Sumando" : "Restando"} 1 a ${itemName}.`,
+      });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["materials"] });
+    onSuccess: (_data, variables) => {
+      toast.success("Stock actualizado", {
+        id: "materials-stock-update",
+        description: `${variables.delta > 0 ? "Se agregó" : "Se descontó"} 1 ${variables.itemName}.`,
+        duration: 3000,
+      });
+      queryClient.invalidateQueries({ queryKey: ["housekeeping-materials"] });
+      queryClient.invalidateQueries({ queryKey: ["inventory"] });
+    },
+    onError: (error: unknown) => {
+      toast.error("No se pudo actualizar el stock", {
+        id: "materials-stock-update",
+        description: getApiErrorMessage(error, "Verifica permisos o conexión e intenta de nuevo."),
+        duration: 5000,
+      });
     },
   });
-
-  const lowStockMaterials = materials?.filter(m => m.quantity <= m.min_quantity) || [];
 
   return (
     <Card>
@@ -101,12 +156,6 @@ export default function MaterialsInventory() {
           <CardTitle className="flex items-center gap-2">
             <Package className="h-5 w-5" />
             Inventario de Materiales
-            {lowStockMaterials.length > 0 && (
-              <Badge variant="destructive" className="ml-2">
-                <AlertTriangle className="h-3 w-3 mr-1" />
-                {lowStockMaterials.length} bajos
-              </Badge>
-            )}
           </CardTitle>
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
@@ -123,48 +172,70 @@ export default function MaterialsInventory() {
                 <div>
                   <Label>Nombre</Label>
                   <Input
+                    placeholder="Ej: Toallas"
                     value={formData.name}
                     onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="Ej: Toallas"
                   />
                 </div>
                 <div>
                   <Label>Categoría</Label>
-                  <Input
+                  <Select
                     value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    placeholder="Ej: Lencería"
-                  />
+                    onValueChange={(value) => setFormData({ ...formData, category: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {MATERIAL_CATEGORIES.map((category) => (
+                        <SelectItem key={category.value} value={category.value}>
+                          {category.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <Label>Cantidad</Label>
                     <Input
                       type="number"
-                      value={formData.quantity}
-                      onChange={(e) => setFormData({ ...formData, quantity: parseInt(e.target.value) })}
+                      min={0}
+                      value={formData.current_stock}
+                      onChange={(e) => setFormData({ ...formData, current_stock: e.target.value })}
                     />
                   </div>
                   <div>
                     <Label>Stock Mínimo</Label>
                     <Input
                       type="number"
-                      value={formData.min_quantity}
-                      onChange={(e) => setFormData({ ...formData, min_quantity: parseInt(e.target.value) })}
+                      min={0}
+                      value={formData.min_stock}
+                      onChange={(e) => setFormData({ ...formData, min_stock: e.target.value })}
                     />
                   </div>
                 </div>
                 <div>
                   <Label>Unidad</Label>
-                  <Input
+                  <Select
                     value={formData.unit}
-                    onChange={(e) => setFormData({ ...formData, unit: e.target.value })}
-                    placeholder="Ej: unidades, litros, kg"
-                  />
+                    onValueChange={(value) => setFormData({ ...formData, unit: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {UNIT_OPTIONS.map((unit) => (
+                        <SelectItem key={unit.value} value={unit.value}>
+                          {unit.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
                 <Button
-                  onClick={() => createMutation.mutate(formData)}
-                  disabled={createMutation.isPending}
+                  onClick={() => createMaterialMutation.mutate()}
+                  disabled={!formData.name || createMaterialMutation.isPending}
                   className="w-full"
                 >
                   Guardar Material
@@ -177,7 +248,7 @@ export default function MaterialsInventory() {
       <CardContent>
         {isLoading ? (
           <div className="text-center py-4 text-muted-foreground">Cargando...</div>
-        ) : materials?.length === 0 ? (
+        ) : materials.length === 0 ? (
           <div className="text-center py-8 space-y-4">
             <div className="flex justify-center">
               <div className="p-3 rounded-full bg-muted">
@@ -193,10 +264,10 @@ export default function MaterialsInventory() {
           </div>
         ) : (
           <div className="space-y-3">
-            {materials?.map((material) => {
-              const isLowStock = material.quantity <= material.min_quantity;
-              const isCritical = material.quantity < material.min_quantity;
-              
+            {materials.map((material) => {
+              const isLowStock = material.current_stock <= material.min_stock;
+              const isCritical = material.current_stock < material.min_stock;
+
               return (
                 <div
                   key={material.id}
@@ -218,55 +289,48 @@ export default function MaterialsInventory() {
                             ¡Crítico!
                           </Badge>
                         )}
-                        {isLowStock && !isCritical && (
-                          <Badge variant="outline" className="text-xs bg-warning/20 border-warning">
-                            <AlertTriangle className="h-3 w-3 mr-1" />
-                            Stock bajo
-                          </Badge>
-                        )}
                       </div>
                       <p className="text-xs text-muted-foreground capitalize">
                         {material.category}
                       </p>
                     </div>
                   </div>
-
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() =>
-                          updateQuantityMutation.mutate({
-                            id: material.id,
-                            quantity: Math.max(0, material.quantity - 1),
+                          updateStockMutation.mutate({
+                            itemId: material.id,
+                            delta: -1,
+                            itemName: material.name,
                           })
                         }
-                        disabled={updateQuantityMutation.isPending || material.quantity === 0}
+                        disabled={updateStockMutation.isPending || material.current_stock <= 0}
                       >
                         <Minus className="h-3 w-3" />
                       </Button>
-                      <span className={`font-bold min-w-[60px] text-center ${
-                        isCritical ? "text-destructive" : isLowStock ? "text-warning" : ""
-                      }`}>
-                        {material.quantity} {material.unit}
+                      <span className="font-bold min-w-[90px] text-center">
+                        {material.current_stock} {material.unit}
                       </span>
                       <Button
                         size="sm"
                         variant="outline"
                         onClick={() =>
-                          updateQuantityMutation.mutate({
-                            id: material.id,
-                            quantity: material.quantity + 1,
+                          updateStockMutation.mutate({
+                            itemId: material.id,
+                            delta: 1,
+                            itemName: material.name,
                           })
                         }
-                        disabled={updateQuantityMutation.isPending}
+                        disabled={updateStockMutation.isPending}
                       >
                         <Plus className="h-3 w-3" />
                       </Button>
                     </div>
                     <span className="text-xs text-muted-foreground">
-                      Mín: {material.min_quantity}
+                      Mín: {material.min_stock}
                     </span>
                   </div>
                 </div>

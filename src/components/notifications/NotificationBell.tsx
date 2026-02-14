@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -7,57 +7,22 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Badge } from "@/components/ui/badge";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { NotificationsList } from "./NotificationsList";
 
-interface NotificationBellProps {
-  hotelId: string;
-}
-
-export function NotificationBell({ hotelId }: NotificationBellProps) {
+export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const queryClient = useQueryClient();
 
-  // Obtener notificaciones no leídas
   const { data: unreadCount = 0 } = useQuery({
-    queryKey: ["notifications-unread", hotelId],
+    queryKey: ["notifications-unread"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("notifications")
-        .select("id", { count: "exact", head: true })
-        .eq("hotel_id", hotelId)
-        .eq("read", false);
-
-      if (error) throw error;
-      return data?.length || 0;
+      const res = await api.getUnreadCount();
+      return res.unread_count ?? res.data?.count ?? 0;
     },
+    refetchInterval: 30000, // Poll every 30s instead of real-time
   });
-
-  // Escuchar nuevas notificaciones en tiempo real
-  useEffect(() => {
-    const channel = supabase
-      .channel("notifications-changes")
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "notifications",
-          filter: `hotel_id=eq.${hotelId}`,
-        },
-        () => {
-          // Refrescar contador cuando hay cambios
-          queryClient.invalidateQueries({ queryKey: ["notifications-unread", hotelId] });
-          queryClient.invalidateQueries({ queryKey: ["notifications", hotelId] });
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [hotelId, queryClient]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -75,7 +40,7 @@ export function NotificationBell({ hotelId }: NotificationBellProps) {
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-96 p-0" align="end">
-        <NotificationsList hotelId={hotelId} onClose={() => setOpen(false)} />
+        <NotificationsList onClose={() => setOpen(false)} />
       </PopoverContent>
     </Popover>
   );

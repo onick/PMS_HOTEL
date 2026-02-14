@@ -1,36 +1,32 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
 import {
   CheckCircle2,
   Clock,
   AlertCircle,
   BedDouble,
   User,
-  Trash2,
   Bell,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import { useToast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 interface NotificationsListProps {
-  hotelId: string;
   onClose: () => void;
 }
 
 interface Notification {
-  id: string;
+  id: number;
   title: string;
-  message: string;
+  message?: string;
+  body?: string;
   type: string;
-  read: boolean;
+  read_at: string | null;
   created_at: string;
-  related_entity_type: string | null;
-  related_entity_id: string | null;
 }
 
 const getNotificationIcon = (type: string) => {
@@ -59,76 +55,39 @@ const getNotificationColor = (type: string) => {
   }
 };
 
-export function NotificationsList({ hotelId, onClose }: NotificationsListProps) {
-  const { toast } = useToast();
+export function NotificationsList({ onClose }: NotificationsListProps) {
   const queryClient = useQueryClient();
 
   const { data: notifications = [], isLoading } = useQuery({
-    queryKey: ["notifications", hotelId],
+    queryKey: ["notifications"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("notifications")
-        .select("*")
-        .eq("hotel_id", hotelId)
-        .order("created_at", { ascending: false })
-        .limit(20);
-
-      if (error) throw error;
-      return data as Notification[];
+      const res = await api.getNotifications({ per_page: "20" });
+      return (res.data || []) as Notification[];
     },
   });
 
   const markAsReadMutation = useMutation({
-    mutationFn: async (notificationId: string) => {
-      const { error } = await supabase
-        .from("notifications")
-        .update({ read: true })
-        .eq("id", notificationId);
-
-      if (error) throw error;
+    mutationFn: async (notificationId: number) => {
+      return api.markNotificationRead(notificationId);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notifications", hotelId] });
-      queryClient.invalidateQueries({ queryKey: ["notifications-unread", hotelId] });
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications-unread"] });
     },
   });
 
   const markAllAsReadMutation = useMutation({
     mutationFn: async () => {
-      const { error } = await supabase
-        .from("notifications")
-        .update({ read: true })
-        .eq("hotel_id", hotelId)
-        .eq("read", false);
-
-      if (error) throw error;
+      return api.markAllNotificationsRead();
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notifications", hotelId] });
-      queryClient.invalidateQueries({ queryKey: ["notifications-unread", hotelId] });
-      toast({
-        title: "Notificaciones marcadas",
-        description: "Todas las notificaciones han sido marcadas como leídas",
-      });
+      queryClient.invalidateQueries({ queryKey: ["notifications"] });
+      queryClient.invalidateQueries({ queryKey: ["notifications-unread"] });
+      toast.success("Todas las notificaciones marcadas como leídas");
     },
   });
 
-  const deleteNotificationMutation = useMutation({
-    mutationFn: async (notificationId: string) => {
-      const { error } = await supabase
-        .from("notifications")
-        .delete()
-        .eq("id", notificationId);
-
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["notifications", hotelId] });
-      queryClient.invalidateQueries({ queryKey: ["notifications-unread", hotelId] });
-    },
-  });
-
-  const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.read_at).length;
 
   if (isLoading) {
     return (
@@ -172,64 +131,59 @@ export function NotificationsList({ hotelId, onClose }: NotificationsListProps) 
           </div>
         ) : (
           <div className="divide-y">
-            {notifications.map((notification) => (
-              <div
-                key={notification.id}
-                className={cn(
-                  "p-4 hover:bg-muted/50 transition-colors group",
-                  !notification.read && "bg-primary/5"
-                )}
-              >
-                <div className="flex gap-3">
-                  <div className={cn("mt-1", getNotificationColor(notification.type))}>
-                    {getNotificationIcon(notification.type)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="flex-1">
-                        <p
-                          className={cn(
-                            "text-sm font-medium",
-                            !notification.read && "font-semibold"
-                          )}
-                        >
-                          {notification.title}
-                        </p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                          {notification.message}
-                        </p>
-                        <p className="text-xs text-muted-foreground mt-2">
-                          {formatDistanceToNow(new Date(notification.created_at), {
-                            addSuffix: true,
-                            locale: es,
-                          })}
-                        </p>
-                      </div>
-                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {!notification.read && (
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7"
-                            onClick={() => markAsReadMutation.mutate(notification.id)}
+            {notifications.map((notification) => {
+              const isRead = !!notification.read_at;
+              return (
+                <div
+                  key={notification.id}
+                  className={cn(
+                    "p-4 hover:bg-muted/50 transition-colors group",
+                    !isRead && "bg-primary/5"
+                  )}
+                >
+                  <div className="flex gap-3">
+                    <div className={cn("mt-1", getNotificationColor(notification.type))}>
+                      {getNotificationIcon(notification.type)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1">
+                          <p
+                            className={cn(
+                              "text-sm font-medium",
+                              !isRead && "font-semibold"
+                            )}
                           >
-                            <CheckCircle2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-7 w-7 text-destructive"
-                          onClick={() => deleteNotificationMutation.mutate(notification.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                            {notification.title}
+                          </p>
+                          <p className="text-sm text-muted-foreground mt-1">
+                            {notification.message || notification.body || ""}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-2">
+                            {formatDistanceToNow(new Date(notification.created_at), {
+                              addSuffix: true,
+                              locale: es,
+                            })}
+                          </p>
+                        </div>
+                        <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          {!isRead && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7"
+                              onClick={() => markAsReadMutation.mutate(notification.id)}
+                            >
+                              <CheckCircle2 className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </ScrollArea>
