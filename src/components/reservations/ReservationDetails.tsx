@@ -1,13 +1,14 @@
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Calendar,
   User,
@@ -17,14 +18,17 @@ import {
   MapPin,
   Clock,
   DollarSign,
-  CheckCircle,
   XCircle,
-  Edit,
-  Trash2,
   Banknote,
+  ArrowRight,
+  Moon,
+  Users,
+  Hash,
+  Globe,
+  MessageSquare,
 } from "lucide-react";
 import { formatDate } from "@/lib/date-utils";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import { useState } from "react";
 import {
@@ -37,16 +41,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  DialogContent as SecondaryDialogContent,
-  DialogHeader as SecondaryDialogHeader,
-  DialogTitle as SecondaryDialogTitle,
-  DialogDescription as SecondaryDialogDescription,
-} from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Input } from "@/components/ui/input";
-import { PaymentDialog } from "@/components/payments/PaymentDialog";
+import { formatCurrencyFromCents, normalizeCurrencyCode } from "@/lib/currency";
 
 interface ReservationDetailsProps {
   reservation: any;
@@ -54,6 +52,39 @@ interface ReservationDetailsProps {
   onOpenChange: (open: boolean) => void;
   onUpdate: () => void;
 }
+
+const STATUS_CONFIG: Record<string, { style: string; label: string; dot: string }> = {
+  CONFIRMED: {
+    style: "bg-success/10 text-success border-success/20",
+    label: "Confirmada",
+    dot: "bg-success",
+  },
+  PENDING: {
+    style: "bg-warning/10 text-warning border-warning/20",
+    label: "Pendiente",
+    dot: "bg-warning",
+  },
+  CANCELLED: {
+    style: "bg-destructive/10 text-destructive border-destructive/20",
+    label: "Cancelada",
+    dot: "bg-destructive",
+  },
+  CHECKED_IN: {
+    style: "bg-primary/10 text-primary border-primary/20",
+    label: "Check-in",
+    dot: "bg-primary",
+  },
+  CHECKED_OUT: {
+    style: "bg-muted text-muted-foreground border-border",
+    label: "Check-out",
+    dot: "bg-muted-foreground",
+  },
+  NO_SHOW: {
+    style: "bg-destructive/10 text-destructive border-destructive/20",
+    label: "No Show",
+    dot: "bg-destructive",
+  },
+};
 
 export default function ReservationDetails({
   reservation,
@@ -65,312 +96,376 @@ export default function ReservationDetails({
   const [cancelling, setCancelling] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showPaymentMethodDialog, setShowPaymentMethodDialog] = useState(false);
-  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
-  const [paymentMethod, setPaymentMethod] = useState<string>("stripe");
+  const [paymentMethod, setPaymentMethod] = useState<string>("cash");
   const [paymentReference, setPaymentReference] = useState("");
 
   if (!reservation) return null;
+  const currencyCode = normalizeCurrencyCode(reservation.currency);
 
   const formatCurrency = (cents: number) => {
-    return new Intl.NumberFormat("es-DO", {
-      style: "currency",
-      currency: reservation.currency || "DOP",
-    }).format(cents / 100);
+    return formatCurrencyFromCents(cents, currencyCode);
   };
 
-  const getStatusBadge = (status: string) => {
-    const styles = {
-      CONFIRMED: "bg-success/10 text-success border-success/20",
-      PENDING_PAYMENT: "bg-warning/10 text-warning border-warning/20",
-      CANCELLED: "bg-destructive/10 text-destructive border-destructive/20",
-    };
-    const labels = {
-      CONFIRMED: "Confirmada",
-      PENDING_PAYMENT: "Pendiente de Pago",
-      CANCELLED: "Cancelada",
-    };
-    return (
-      <Badge className={styles[status as keyof typeof styles]}>
-        {labels[status as keyof typeof labels]}
-      </Badge>
+  const status = STATUS_CONFIG[reservation.status] || {
+    style: "bg-muted text-muted-foreground",
+    label: reservation.status,
+    dot: "bg-muted-foreground",
+  };
+
+  const guestName = reservation.guest?.full_name || "Sin nombre";
+  const guestEmail = reservation.guest?.email;
+  const guestPhone = reservation.guest?.phone;
+  const roomTypeName = reservation.units?.[0]?.room_type?.name || "N/A";
+  const roomNumber = reservation.units?.[0]?.room?.number;
+
+  const nights =
+    reservation.nights ||
+    Math.ceil(
+      (new Date(reservation.check_out_date).getTime() -
+        new Date(reservation.check_in_date).getTime()) /
+        (1000 * 60 * 60 * 24)
     );
-  };
 
-  const handlePaymentMethodSelection = () => {
-    if (paymentMethod === "stripe") {
-      setShowPaymentMethodDialog(false);
-      setShowPaymentDialog(true);
-    } else {
-      handleManualPayment();
+  const handleRecordPayment = async () => {
+    if (!reservation.folio?.id) {
+      toast.error("No se encontró folio para esta reserva");
+      return;
     }
-  };
 
-  const handleManualPayment = async () => {
     setConfirmingPayment(true);
     try {
-      // Crear cargo en el folio
-      const { error: chargeError } = await supabase
-        .from("folio_charges")
-        .insert({
-          folio_id: reservation.folio_id,
-          description: `Pago de reserva - ${paymentMethod === "cash" ? "Efectivo" : "Tarjeta"}${paymentReference ? ` - Ref: ${paymentReference}` : ""}`,
-          amount_cents: -reservation.total_amount_cents,
-        });
+      const providerMap: Record<string, string> = {
+        cash: "cash",
+        card: "card_terminal",
+        transfer: "bank_transfer",
+      };
 
-      if (chargeError) {
-        console.error("Error creating folio charge:", chargeError);
-        throw new Error(`Error al crear cargo: ${chargeError.message}${chargeError.hint ? ` - ${chargeError.hint}` : ''}`);
-      }
+      await api.recordPayment(reservation.folio.id, {
+        provider: providerMap[paymentMethod] || paymentMethod,
+        amount_cents: reservation.total_cents,
+        description: `Pago de reserva #${reservation.confirmation_code}`,
+        reference_number: paymentReference || undefined,
+      });
 
-      // Actualizar estado de reserva a CONFIRMED
-      const { error: resError } = await supabase
-        .from("reservations")
-        .update({
-          status: "CONFIRMED",
-          metadata: {
-            ...(reservation.metadata || {}),
-            payment_method: paymentMethod,
-            payment_reference: paymentReference,
-            paid_at: new Date().toISOString()
-          }
-        })
-        .eq("id", reservation.id);
-
-      if (resError) {
-        console.error("Error updating reservation:", resError);
-        throw new Error(`Error al confirmar reserva: ${resError.message}${resError.hint ? ` - ${resError.hint}` : ''}`);
-      }
-
-      toast.success("Pago registrado y reserva confirmada exitosamente");
+      toast.success("Pago registrado exitosamente");
       setShowPaymentMethodDialog(false);
       setPaymentReference("");
       onUpdate();
       onOpenChange(false);
     } catch (error: any) {
-      console.error("Manual payment error details:", error);
+      console.error("Payment error:", error);
       toast.error(error.message || "Error al registrar el pago");
     } finally {
       setConfirmingPayment(false);
     }
   };
 
-  const handlePaymentSuccess = async () => {
-    try {
-      // Update reservation status to CONFIRMED
-      const { error } = await supabase
-        .from("reservations")
-        .update({ status: "CONFIRMED" })
-        .eq("id", reservation.id);
-
-      if (error) throw error;
-
-      toast.success("Pago procesado y reserva confirmada exitosamente");
-      onUpdate();
-      onOpenChange(false);
-    } catch (error: any) {
-      console.error("Error confirming payment:", error);
-      toast.error(error.message || "Error al confirmar el pago");
-    }
-  };
-
   const handleCancelReservation = async () => {
     setCancelling(true);
     try {
-      // Actualizar estado a cancelado
-      const { error } = await supabase
-        .from("reservations")
-        .update({ status: "CANCELLED" })
-        .eq("id", reservation.id);
-
-      if (error) throw error;
-
+      await api.cancelReservation(reservation.id);
       toast.success("Reserva cancelada exitosamente");
       onUpdate();
       onOpenChange(false);
       setShowCancelDialog(false);
     } catch (error: any) {
       console.error("Error cancelling reservation:", error);
-      toast.error("Error al cancelar la reserva");
+      toast.error(error.message || "Error al cancelar la reserva");
     } finally {
       setCancelling(false);
     }
   };
 
-  const nights = Math.ceil(
-    (new Date(reservation.check_out).getTime() -
-      new Date(reservation.check_in).getTime()) /
-      (1000 * 60 * 60 * 24)
-  );
+  const balanceCents = reservation.folio?.balance_cents ?? 0;
+  const isPaid = balanceCents === 0 && reservation.folio;
 
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <div className="flex items-start justify-between">
-              <div>
-                <DialogTitle className="text-2xl">Detalles de Reserva</DialogTitle>
-                <DialogDescription>ID: {reservation.id.slice(0, 8)}</DialogDescription>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto p-0">
+          {/* Hero header — guest name, status, confirmation code */}
+          <div className="px-6 pt-6 pb-4">
+            <DialogHeader className="space-y-3">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0">
+                  <DialogTitle className="text-xl font-semibold truncate">
+                    {guestName}
+                  </DialogTitle>
+                  <DialogDescription className="flex items-center gap-2 mt-1">
+                    {reservation.confirmation_code && (
+                      <span className="font-mono text-xs bg-muted px-2 py-0.5 rounded">
+                        #{reservation.confirmation_code}
+                      </span>
+                    )}
+                    {reservation.source && (
+                      <span className="flex items-center gap-1 text-xs">
+                        <Globe className="h-3 w-3" />
+                        {reservation.source}
+                      </span>
+                    )}
+                  </DialogDescription>
+                </div>
+                <Badge className={`${status.style} shrink-0`}>
+                  <span className={`h-1.5 w-1.5 rounded-full ${status.dot} mr-1.5`} />
+                  {status.label}
+                </Badge>
               </div>
-              {getStatusBadge(reservation.status)}
-            </div>
-          </DialogHeader>
+            </DialogHeader>
 
-          <div className="space-y-6">
-            {/* Información del huésped */}
-            <div>
-              <h3 className="font-semibold mb-3 flex items-center gap-2">
-                <User className="h-4 w-4 text-primary" />
-                Información del Huésped
-              </h3>
-              <div className="bg-muted/50 rounded-lg p-4 space-y-2">
-                <div className="flex items-center gap-2">
-                  <User className="h-4 w-4 text-muted-foreground" />
-                  <span className="font-medium">{reservation.customer.name}</span>
+            {/* Stay visual — check-in → nights → check-out */}
+            <div className="mt-5 flex items-center gap-3 rounded-lg border p-4">
+              <div className="flex-1 text-center">
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-1">
+                  Check-in
+                </p>
+                <p className="font-semibold text-sm">{formatDate(reservation.check_in_date)}</p>
+              </div>
+              <div className="flex flex-col items-center gap-1 px-3">
+                <div className="flex items-center gap-1.5 text-muted-foreground">
+                  <div className="h-px w-6 bg-border" />
+                  <Moon className="h-3.5 w-3.5 text-primary" />
+                  <div className="h-px w-6 bg-border" />
                 </div>
-                <div className="flex items-center gap-2">
-                  <Mail className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm">{reservation.customer.email}</span>
+                <span className="text-xs font-bold text-primary">
+                  {nights} {nights === 1 ? "noche" : "noches"}
+                </span>
+              </div>
+              <div className="flex-1 text-center">
+                <p className="text-[11px] uppercase tracking-wider text-muted-foreground font-medium mb-1">
+                  Check-out
+                </p>
+                <p className="font-semibold text-sm">{formatDate(reservation.check_out_date)}</p>
+              </div>
+            </div>
+
+            {/* Quick stats row */}
+            <div className="grid grid-cols-3 gap-3 mt-3">
+              <div className="rounded-lg border p-3 text-center">
+                <div className="flex items-center justify-center gap-1.5 text-muted-foreground mb-1">
+                  <MapPin className="h-3.5 w-3.5" />
+                  <span className="text-[11px] uppercase tracking-wider font-medium">Habitación</span>
                 </div>
-                {reservation.customer.phone && (
-                  <div className="flex items-center gap-2">
-                    <Phone className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-sm">{reservation.customer.phone}</span>
-                  </div>
+                <p className="font-semibold text-sm">{roomTypeName}</p>
+                {roomNumber && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Hab. {roomNumber}
+                  </p>
                 )}
               </div>
+              <div className="rounded-lg border p-3 text-center">
+                <div className="flex items-center justify-center gap-1.5 text-muted-foreground mb-1">
+                  <Users className="h-3.5 w-3.5" />
+                  <span className="text-[11px] uppercase tracking-wider font-medium">Huéspedes</span>
+                </div>
+                <p className="font-semibold text-sm">
+                  {reservation.total_adults} adulto{reservation.total_adults !== 1 ? "s" : ""}
+                </p>
+                {reservation.total_children > 0 && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {reservation.total_children} niño{reservation.total_children !== 1 ? "s" : ""}
+                  </p>
+                )}
+              </div>
+              <div className="rounded-lg border p-3 text-center">
+                <div className="flex items-center justify-center gap-1.5 text-muted-foreground mb-1">
+                  <DollarSign className="h-3.5 w-3.5" />
+                  <span className="text-[11px] uppercase tracking-wider font-medium">Total</span>
+                </div>
+                <p className="font-semibold text-sm">{formatCurrency(reservation.total_cents)}</p>
+                <p className={`text-xs mt-0.5 font-medium ${isPaid ? "text-success" : balanceCents > 0 ? "text-warning" : "text-muted-foreground"}`}>
+                  {isPaid ? "Pagado" : balanceCents > 0 ? `Pendiente: ${formatCurrency(balanceCents)}` : reservation.currency}
+                </p>
+              </div>
             </div>
+          </div>
 
-            <Separator />
+          <Separator />
 
-            {/* Información de la reserva */}
-            <div className="grid md:grid-cols-2 gap-4">
-              <div>
-                <h3 className="font-semibold mb-3 flex items-center gap-2">
-                  <Calendar className="h-4 w-4 text-primary" />
-                  Fechas de Estadía
-                </h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">Check-in:</span>
-                    <span className="font-medium">{formatDate(reservation.check_in)}</span>
+          {/* Tabbed content */}
+          <div className="px-6 pb-6">
+            <Tabs defaultValue="details" className="w-full">
+              <TabsList className="grid w-full grid-cols-3 mt-4">
+                <TabsTrigger value="details">Detalles</TabsTrigger>
+                <TabsTrigger value="payment">Pago</TabsTrigger>
+                <TabsTrigger value="info">Información</TabsTrigger>
+              </TabsList>
+
+              {/* Tab: Details — guest contact + room */}
+              <TabsContent value="details" className="space-y-4 mt-4">
+                <div>
+                  <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-3">
+                    Contacto del huésped
+                  </h4>
+                  <div className="space-y-2.5">
+                    <div className="flex items-center gap-3">
+                      <div className="h-8 w-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                        <User className="h-4 w-4 text-primary" />
+                      </div>
+                      <span className="font-medium text-sm">{guestName}</span>
+                    </div>
+                    {guestEmail && (
+                      <div className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                          <Mail className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <span className="text-sm text-muted-foreground">{guestEmail}</span>
+                      </div>
+                    )}
+                    {guestPhone && (
+                      <div className="flex items-center gap-3">
+                        <div className="h-8 w-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                          <Phone className="h-4 w-4 text-muted-foreground" />
+                        </div>
+                        <span className="text-sm text-muted-foreground">{guestPhone}</span>
+                      </div>
+                    )}
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">Check-out:</span>
-                    <span className="font-medium">{formatDate(reservation.check_out)}</span>
+                </div>
+
+                {reservation.special_requests && (
+                  <>
+                    <Separator />
+                    <div>
+                      <h4 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-2">
+                        Solicitudes especiales
+                      </h4>
+                      <div className="flex items-start gap-2 bg-muted/50 rounded-lg p-3">
+                        <MessageSquare className="h-4 w-4 text-muted-foreground mt-0.5 shrink-0" />
+                        <p className="text-sm">{reservation.special_requests}</p>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </TabsContent>
+
+              {/* Tab: Payment — folio, balance, actions */}
+              <TabsContent value="payment" className="space-y-4 mt-4">
+                <div className="rounded-lg border overflow-hidden">
+                  {/* Payment summary header */}
+                  <div className={`px-4 py-3 ${isPaid ? "bg-success/5" : balanceCents > 0 ? "bg-warning/5" : "bg-muted/30"}`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">Total de la reserva</span>
+                      <span className="text-lg font-bold">{formatCurrency(reservation.total_cents)}</span>
+                    </div>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">Noches:</span>
+
+                  <div className="p-4 space-y-3">
+                    {reservation.folio && (
+                      <>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground flex items-center gap-1.5">
+                            <Hash className="h-3.5 w-3.5" />
+                            Folio
+                          </span>
+                          <span className="font-mono">#{reservation.folio.folio_number}</span>
+                        </div>
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Balance pendiente</span>
+                          <span className={`font-semibold ${balanceCents > 0 ? "text-warning" : "text-success"}`}>
+                            {balanceCents > 0 ? formatCurrency(balanceCents) : formatCurrency(0)}
+                          </span>
+                        </div>
+                      </>
+                    )}
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Moneda</span>
+                      <span>{currencyCode}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Payment action */}
+                {reservation.status === "PENDING" && reservation.folio?.id && (
+                  <Button
+                    onClick={() => setShowPaymentMethodDialog(true)}
+                    className="w-full bg-success hover:bg-success/90"
+                  >
+                    <CreditCard className="h-4 w-4 mr-2" />
+                    Registrar Pago — {formatCurrency(reservation.total_cents)}
+                  </Button>
+                )}
+              </TabsContent>
+
+              {/* Tab: Info — source, dates, metadata */}
+              <TabsContent value="info" className="space-y-3 mt-4">
+                <div className="space-y-2.5 text-sm">
+                  <div className="flex justify-between py-1.5">
+                    <span className="text-muted-foreground">Estado</span>
+                    <Badge className={`${status.style} text-xs`}>
+                      {status.label}
+                    </Badge>
+                  </div>
+                  {reservation.source && (
+                    <div className="flex justify-between py-1.5 border-t">
+                      <span className="text-muted-foreground">Fuente</span>
+                      <span className="font-medium">{reservation.source}</span>
+                    </div>
+                  )}
+                  <div className="flex justify-between py-1.5 border-t">
+                    <span className="text-muted-foreground">Creada</span>
+                    <span>{formatDate(reservation.created_at)}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-t">
+                    <span className="text-muted-foreground">Check-in</span>
+                    <span>{formatDate(reservation.check_in_date)}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-t">
+                    <span className="text-muted-foreground">Check-out</span>
+                    <span>{formatDate(reservation.check_out_date)}</span>
+                  </div>
+                  <div className="flex justify-between py-1.5 border-t">
+                    <span className="text-muted-foreground">Noches</span>
                     <span className="font-medium">{nights}</span>
                   </div>
-                </div>
-              </div>
-
-              <div>
-                <h3 className="font-semibold mb-3 flex items-center gap-2">
-                  <MapPin className="h-4 w-4 text-primary" />
-                  Detalles de Habitación
-                </h3>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">Tipo:</span>
-                    <span className="font-medium">{reservation.room_types?.name || "N/A"}</span>
+                  <div className="flex justify-between py-1.5 border-t">
+                    <span className="text-muted-foreground">Tipo de habitación</span>
+                    <span className="font-medium">{roomTypeName}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-muted-foreground">Huéspedes:</span>
-                    <span className="font-medium">{reservation.guests}</span>
-                  </div>
+                  {roomNumber && (
+                    <div className="flex justify-between py-1.5 border-t">
+                      <span className="text-muted-foreground">Habitación asignada</span>
+                      <span className="font-medium">{roomNumber}</span>
+                    </div>
+                  )}
+                  {reservation.confirmation_code && (
+                    <div className="flex justify-between py-1.5 border-t">
+                      <span className="text-muted-foreground">Código de confirmación</span>
+                      <span className="font-mono text-xs">{reservation.confirmation_code}</span>
+                    </div>
+                  )}
                 </div>
-              </div>
-            </div>
+              </TabsContent>
+            </Tabs>
 
-            <Separator />
-
-            {/* Información de pago */}
-            <div>
-              <h3 className="font-semibold mb-3 flex items-center gap-2">
-                <DollarSign className="h-4 w-4 text-primary" />
-                Información de Pago
-              </h3>
-              <div className="bg-muted/50 rounded-lg p-4 space-y-2">
-                <div className="flex justify-between">
-                  <span className="text-sm text-muted-foreground">Total:</span>
-                  <span className="font-bold text-lg">
-                    {formatCurrency(reservation.total_amount_cents)}
-                  </span>
+            {/* Actions — always visible at bottom */}
+            {reservation.status !== "CANCELLED" && reservation.status !== "CHECKED_OUT" && (
+              <>
+                <Separator className="mt-4" />
+                <div className="pt-4">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowCancelDialog(true)}
+                    disabled={cancelling}
+                    className="w-full text-destructive border-destructive/20 hover:bg-destructive/5 hover:text-destructive"
+                  >
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Cancelar Reserva
+                  </Button>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-muted-foreground">Moneda:</span>
-                  <span>{reservation.currency}</span>
-                </div>
-                {reservation.hold_expires_at && (
-                  <div className="flex justify-between text-sm">
-                    <span className="text-muted-foreground">Hold expira:</span>
-                    <span className="text-warning">
-                      {formatDate(reservation.hold_expires_at)}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            <Separator />
-
-            {/* Información adicional */}
-            <div>
-              <h3 className="font-semibold mb-3 flex items-center gap-2">
-                <Clock className="h-4 w-4 text-primary" />
-                Información Adicional
-              </h3>
-              <div className="space-y-2 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Creada:</span>
-                  <span>{formatDate(reservation.created_at)}</span>
-                </div>
-                {reservation.updated_at !== reservation.created_at && (
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Actualizada:</span>
-                    <span>{formatDate(reservation.updated_at)}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Acciones */}
-            <div className="flex gap-2 pt-4">
-              {reservation.status === "PENDING_PAYMENT" && (
-                <Button
-                  onClick={() => setShowPaymentMethodDialog(true)}
-                  className="flex-1 bg-success hover:bg-success/90"
-                >
-                  <CreditCard className="h-4 w-4 mr-2" />
-                  Procesar Pago
-                </Button>
-              )}
-
-              {reservation.status !== "CANCELLED" && (
-                <Button
-                  variant="destructive"
-                  onClick={() => setShowCancelDialog(true)}
-                  disabled={cancelling}
-                  className="flex-1"
-                >
-                  <XCircle className="h-4 w-4 mr-2" />
-                  Cancelar Reserva
-                </Button>
-              )}
-            </div>
+              </>
+            )}
           </div>
         </DialogContent>
       </Dialog>
 
+      {/* Cancel confirmation */}
       <AlertDialog open={showCancelDialog} onOpenChange={setShowCancelDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Cancelar esta reserva?</AlertDialogTitle>
             <AlertDialogDescription>
-              Esta acción cancelará la reserva y liberará el inventario. Esta acción no se
-              puede deshacer.
+              Esta acción cancelará la reserva de <span className="font-medium text-foreground">{guestName}</span> y
+              liberará el inventario. Esta acción no se puede deshacer.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -385,53 +480,80 @@ export default function ReservationDetails({
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Payment Method Selection Dialog */}
+      {/* Payment method dialog */}
       <Dialog open={showPaymentMethodDialog} onOpenChange={setShowPaymentMethodDialog}>
-        <SecondaryDialogContent>
-          <SecondaryDialogHeader>
-            <SecondaryDialogTitle>Seleccionar Método de Pago</SecondaryDialogTitle>
-            <SecondaryDialogDescription>
-              Total a pagar: <span className="font-bold text-lg">{formatCurrency(reservation.total_amount_cents)}</span>
-            </SecondaryDialogDescription>
-          </SecondaryDialogHeader>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Registrar Pago</DialogTitle>
+            <DialogDescription>
+              Reserva de {guestName}
+            </DialogDescription>
+          </DialogHeader>
 
-          <div className="space-y-4 py-4">
+          {/* Amount display */}
+          <div className="text-center py-3">
+            <p className="text-3xl font-bold tracking-tight">{formatCurrency(reservation.total_cents)}</p>
+            <p className="text-xs text-muted-foreground mt-1">{reservation.currency}</p>
+          </div>
+
+          <div className="space-y-4">
             <RadioGroup value={paymentMethod} onValueChange={setPaymentMethod}>
-              <div className="space-y-3">
-                <div className="flex items-center space-x-3 border rounded-lg p-4 hover:bg-muted/50 cursor-pointer">
-                  <RadioGroupItem value="cash" id="cash" />
-                  <Label htmlFor="cash" className="flex-1 cursor-pointer">
-                    <div className="flex items-center gap-2">
-                      <Banknote className="h-5 w-5 text-green-600" />
+              <div className="space-y-2">
+                <div
+                  className={`flex items-center space-x-3 border rounded-lg p-3.5 cursor-pointer transition-colors ${
+                    paymentMethod === "cash" ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                  }`}
+                  onClick={() => setPaymentMethod("cash")}
+                >
+                  <RadioGroupItem value="cash" id="pay-cash" />
+                  <Label htmlFor="pay-cash" className="flex-1 cursor-pointer">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-8 w-8 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center">
+                        <Banknote className="h-4 w-4 text-green-600" />
+                      </div>
                       <div>
-                        <div className="font-semibold">Efectivo</div>
-                        <div className="text-sm text-muted-foreground">Pago en efectivo en recepción</div>
+                        <div className="font-medium text-sm">Efectivo</div>
+                        <div className="text-xs text-muted-foreground">Pago en recepción</div>
                       </div>
                     </div>
                   </Label>
                 </div>
 
-                <div className="flex items-center space-x-3 border rounded-lg p-4 hover:bg-muted/50 cursor-pointer">
-                  <RadioGroupItem value="card" id="card" />
-                  <Label htmlFor="card" className="flex-1 cursor-pointer">
-                    <div className="flex items-center gap-2">
-                      <CreditCard className="h-5 w-5 text-blue-600" />
+                <div
+                  className={`flex items-center space-x-3 border rounded-lg p-3.5 cursor-pointer transition-colors ${
+                    paymentMethod === "card" ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                  }`}
+                  onClick={() => setPaymentMethod("card")}
+                >
+                  <RadioGroupItem value="card" id="pay-card" />
+                  <Label htmlFor="pay-card" className="flex-1 cursor-pointer">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-8 w-8 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
+                        <CreditCard className="h-4 w-4 text-blue-600" />
+                      </div>
                       <div>
-                        <div className="font-semibold">Tarjeta (Terminal física)</div>
-                        <div className="text-sm text-muted-foreground">Pago con tarjeta en terminal</div>
+                        <div className="font-medium text-sm">Tarjeta</div>
+                        <div className="text-xs text-muted-foreground">Terminal punto de venta</div>
                       </div>
                     </div>
                   </Label>
                 </div>
 
-                <div className="flex items-center space-x-3 border rounded-lg p-4 hover:bg-muted/50 cursor-pointer">
-                  <RadioGroupItem value="stripe" id="stripe" />
-                  <Label htmlFor="stripe" className="flex-1 cursor-pointer">
-                    <div className="flex items-center gap-2">
-                      <DollarSign className="h-5 w-5 text-purple-600" />
+                <div
+                  className={`flex items-center space-x-3 border rounded-lg p-3.5 cursor-pointer transition-colors ${
+                    paymentMethod === "transfer" ? "border-primary bg-primary/5" : "hover:bg-muted/50"
+                  }`}
+                  onClick={() => setPaymentMethod("transfer")}
+                >
+                  <RadioGroupItem value="transfer" id="pay-transfer" />
+                  <Label htmlFor="pay-transfer" className="flex-1 cursor-pointer">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-8 w-8 rounded-lg bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+                        <DollarSign className="h-4 w-4 text-purple-600" />
+                      </div>
                       <div>
-                        <div className="font-semibold">Stripe (Online)</div>
-                        <div className="text-sm text-muted-foreground">Pago seguro online con tarjeta</div>
+                        <div className="font-medium text-sm">Transferencia</div>
+                        <div className="text-xs text-muted-foreground">Transferencia bancaria</div>
                       </div>
                     </div>
                   </Label>
@@ -439,48 +561,40 @@ export default function ReservationDetails({
               </div>
             </RadioGroup>
 
-            {paymentMethod !== "stripe" && (
-              <div className="space-y-2">
-                <Label htmlFor="reference">Referencia de Transacción (opcional)</Label>
-                <Input
-                  id="reference"
-                  placeholder="Ej: Recibo #12345, Autorización 678901"
-                  value={paymentReference}
-                  onChange={(e) => setPaymentReference(e.target.value)}
-                />
-              </div>
-            )}
+            <div className="space-y-2">
+              <Label htmlFor="reference" className="text-xs text-muted-foreground">
+                Referencia (opcional)
+              </Label>
+              <Input
+                id="reference"
+                placeholder="Ej: Recibo #12345, Autorización 678901"
+                value={paymentReference}
+                onChange={(e) => setPaymentReference(e.target.value)}
+              />
+            </div>
           </div>
 
-          <div className="flex gap-2 justify-end">
+          <div className="flex gap-2 pt-2">
             <Button
               variant="outline"
               onClick={() => {
                 setShowPaymentMethodDialog(false);
                 setPaymentReference("");
               }}
+              className="flex-1"
             >
               Cancelar
             </Button>
             <Button
-              onClick={handlePaymentMethodSelection}
+              onClick={handleRecordPayment}
               disabled={confirmingPayment}
-              className="bg-success hover:bg-success/90"
+              className="flex-1 bg-success hover:bg-success/90"
             >
-              {confirmingPayment ? "Procesando..." : paymentMethod === "stripe" ? "Ir a Pago Online" : "Confirmar Pago"}
+              {confirmingPayment ? "Procesando..." : "Confirmar Pago"}
             </Button>
           </div>
-        </SecondaryDialogContent>
+        </DialogContent>
       </Dialog>
-
-      <PaymentDialog
-        open={showPaymentDialog}
-        onOpenChange={setShowPaymentDialog}
-        amount={reservation.total_amount_cents}
-        currency={reservation.currency}
-        reservationId={reservation.id}
-        onSuccess={handlePaymentSuccess}
-      />
     </>
   );
 }

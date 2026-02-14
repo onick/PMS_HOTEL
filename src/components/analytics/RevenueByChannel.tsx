@@ -1,48 +1,45 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts";
-import { useOutletContext } from "react-router-dom";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Network, TrendingUp } from "lucide-react";
+import { Network } from "lucide-react";
+import { formatCurrencyAmount, normalizeCurrencyCode } from "@/lib/currency";
+
+const SOURCE_LABELS: Record<string, string> = {
+  DIRECT: "Directo",
+  BOOKING: "Booking.com",
+  EXPEDIA: "Expedia",
+  AIRBNB: "Airbnb",
+  WALKIN: "Walk-in",
+  PHONE: "Teléfono",
+  UNKNOWN: "Desconocido",
+};
 
 export default function RevenueByChannel() {
-  const { hotel } = useOutletContext<{ hotel: { id: string; currency: string } }>();
+  const { data: hotelData } = useQuery({
+    queryKey: ["hotel-currency"],
+    queryFn: async () => (await api.getHotel()).data,
+  });
+  const currencyCode = normalizeCurrencyCode(hotelData?.currency);
 
   const { data: channelRevenue, isLoading } = useQuery({
-    queryKey: ["revenue-by-channel", hotel.id],
+    queryKey: ["revenue-by-channel"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("reservations")
-        .select("total_amount_cents, metadata, status")
-        .eq("hotel_id", hotel.id)
-        .in("status", ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"]);
+      const today = new Date().toISOString().split("T")[0];
+      const from = new Date(Date.now() - 365 * 86400000).toISOString().split("T")[0];
 
-      if (error) throw error;
+      const res = await api.getRevenueBySource(from, today);
+      const data = res.data;
 
-      // Agrupar por canal
-      const channelMap = new Map<string, number>();
-      
-      data?.forEach((reservation) => {
-        const metadata = reservation.metadata as any;
-        const channel = metadata?.source || "Direct";
-        const amount = reservation.total_amount_cents || 0;
-        channelMap.set(channel, (channelMap.get(channel) || 0) + amount);
-      });
+      const chartData = (data.data || []).map((item: any) => ({
+        channel: SOURCE_LABELS[item.source] || item.source,
+        revenue: item.total_revenue_cents / 100,
+        revenueCents: item.total_revenue_cents,
+        percentage: item.percentage_revenue,
+      }));
 
-      // Convertir a array y ordenar
-      const chartData = Array.from(channelMap.entries())
-        .map(([channel, totalCents]) => ({
-          channel,
-          revenue: totalCents / 100,
-          revenueFormatted: new Intl.NumberFormat("es-DO", {
-            style: "currency",
-            currency: hotel.currency,
-          }).format(totalCents / 100),
-        }))
-        .sort((a, b) => b.revenue - a.revenue);
-
-      const totalRevenue = chartData.reduce((sum, item) => sum + item.revenue, 0);
+      const totalRevenue = data.summary.total_revenue_cents / 100;
 
       return { chartData, totalRevenue };
     },
@@ -62,14 +59,6 @@ export default function RevenueByChannel() {
     );
   }
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("es-DO", {
-      style: "currency",
-      currency: hotel.currency,
-      minimumFractionDigits: 0,
-    }).format(value);
-  };
-
   return (
     <Card>
       <CardHeader>
@@ -86,7 +75,7 @@ export default function RevenueByChannel() {
           <div className="text-right">
             <div className="text-sm text-muted-foreground">Total Revenue</div>
             <div className="text-2xl font-bold">
-              {formatCurrency(channelRevenue?.totalRevenue || 0)}
+              {formatCurrencyAmount(channelRevenue?.totalRevenue || 0, currencyCode, "es-DO", { maximumFractionDigits: 0 })}
             </div>
           </div>
         </div>
@@ -95,16 +84,16 @@ export default function RevenueByChannel() {
         <ResponsiveContainer width="100%" height={300}>
           <BarChart data={channelRevenue?.chartData || []}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
-            <XAxis 
-              dataKey="channel" 
+            <XAxis
+              dataKey="channel"
               className="text-xs"
               angle={-45}
               textAnchor="end"
               height={80}
             />
-            <YAxis 
+            <YAxis
               className="text-xs"
-              tickFormatter={(value) => formatCurrency(value)}
+              tickFormatter={(value) => formatCurrencyAmount(value, currencyCode, "es-DO", { maximumFractionDigits: 0 })}
             />
             <Tooltip
               content={({ active, payload }) => {
@@ -113,16 +102,16 @@ export default function RevenueByChannel() {
                   <div className="bg-background border rounded-lg p-3 shadow-lg">
                     <p className="font-semibold">{payload[0].payload.channel}</p>
                     <p className="text-sm text-muted-foreground">
-                      Revenue: {payload[0].payload.revenueFormatted}
+                      Revenue: {formatCurrencyAmount(payload[0].payload.revenueCents / 100, currencyCode)}
                     </p>
                   </div>
                 );
               }}
             />
             <Legend />
-            <Bar 
-              dataKey="revenue" 
-              fill="hsl(var(--channel-manager))" 
+            <Bar
+              dataKey="revenue"
+              fill="hsl(var(--channel-manager))"
               name="Revenue"
               radius={[8, 8, 0, 0]}
             />
@@ -140,14 +129,14 @@ export default function RevenueByChannel() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {channelRevenue?.chartData.map((item) => (
+              {channelRevenue?.chartData.map((item: any) => (
                 <tr key={item.channel} className="hover:bg-muted/30">
                   <td className="p-3">{item.channel}</td>
                   <td className="p-3 text-right font-medium">
-                    {item.revenueFormatted}
+                    {formatCurrencyAmount(item.revenueCents / 100, currencyCode)}
                   </td>
                   <td className="p-3 text-right text-muted-foreground">
-                    {((item.revenue / (channelRevenue.totalRevenue || 1)) * 100).toFixed(1)}%
+                    {item.percentage.toFixed(1)}%
                   </td>
                 </tr>
               ))}

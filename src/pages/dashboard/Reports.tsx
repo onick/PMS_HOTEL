@@ -1,127 +1,66 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
-import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { BarChart3, TrendingUp, DollarSign, Download, Calendar as CalendarIcon } from "lucide-react";
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, differenceInDays } from "date-fns";
+import { BarChart3, DollarSign, Download, Calendar as CalendarIcon } from "lucide-react";
+import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { es } from "date-fns/locale";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
+import { useOutletContext } from "react-router-dom";
+import { formatCurrencyAmount, formatCurrencyFromCents, normalizeCurrencyCode } from "@/lib/currency";
 
 export default function Reports() {
+  const { hotel } = useOutletContext<{ hotel: { currency?: string } }>();
+  const currencyCode = normalizeCurrencyCode(hotel?.currency);
   const [dateRange, setDateRange] = useState({
     from: startOfMonth(new Date()),
     to: endOfMonth(new Date()),
   });
 
-  // Get hotel_id
-  const { data: userRoles } = useQuery({
-    queryKey: ["user-roles"],
-    queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error("No user");
-
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", user.id)
-        .single();
-
-      if (error) throw error;
-      return data;
-    },
-  });
+  const fromStr = format(dateRange.from, "yyyy-MM-dd");
+  const toStr = format(dateRange.to, "yyyy-MM-dd");
 
   // Occupancy Report
   const { data: occupancyData, isLoading: loadingOccupancy } = useQuery({
-    queryKey: ["occupancy-report", userRoles?.hotel_id, dateRange],
-    enabled: !!userRoles?.hotel_id,
+    queryKey: ["occupancy-report", fromStr, toStr],
     queryFn: async () => {
-      // Get total rooms
-      const { data: rooms } = await supabase
-        .from("rooms")
-        .select("id")
-        .eq("hotel_id", userRoles.hotel_id);
+      const res = await api.getOccupancyReport(fromStr, toStr);
+      const data = res.data;
 
-      const totalRooms = rooms?.length || 1; // Avoid division by zero
-
-      // Get reservations in date range
-      const { data: reservations, error } = await supabase
-        .from("reservations")
-        .select("check_in, check_out, status")
-        .eq("hotel_id", userRoles.hotel_id)
-        .gte("check_out", dateRange.from.toISOString())
-        .lte("check_in", dateRange.to.toISOString())
-        .in("status", ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"]);
-
-      if (error) throw error;
-
-      // Calculate occupied room nights
-      let totalRoomNights = 0;
-      reservations?.forEach((res) => {
-        const checkIn = new Date(res.check_in);
-        const checkOut = new Date(res.check_out);
-        const nights = differenceInDays(checkOut, checkIn);
-        totalRoomNights += nights;
-      });
-
-      // Calculate available room nights
-      const daysInRange = differenceInDays(dateRange.to, dateRange.from) + 1;
-      const availableRoomNights = totalRooms * daysInRange;
-      const occupancyRate = availableRoomNights > 0 
-        ? (totalRoomNights / availableRoomNights) * 100 
-        : 0;
+      const totalRoomNights = data.daily.reduce((sum: number, d: any) => sum + (d.occupied_rooms || 0), 0);
+      const availableRoomNights = data.daily.reduce((sum: number, d: any) => sum + (d.total_rooms || 0), 0);
 
       return {
-        totalRooms,
-        totalReservations: reservations?.length || 0,
+        totalRooms: data.daily[0]?.total_rooms || 0,
+        totalReservations: data.summary.days_with_data,
         totalRoomNights,
         availableRoomNights,
-        occupancyRate: occupancyRate.toFixed(2),
+        occupancyRate: data.summary.avg_occupancy_rate.toFixed(2),
       };
     },
   });
 
   // Revenue Report
   const { data: revenueData, isLoading: loadingRevenue } = useQuery({
-    queryKey: ["revenue-report", userRoles?.hotel_id, dateRange],
-    enabled: !!userRoles?.hotel_id,
+    queryKey: ["revenue-report-page", fromStr, toStr],
     queryFn: async () => {
-      // Get all folios with charges in date range
-      const { data: charges, error } = await supabase
-        .from("folio_charges")
-        .select(`
-          *,
-          folios!inner(hotel_id, reservations!inner(check_in, check_out))
-        `)
-        .eq("folios.hotel_id", userRoles.hotel_id)
-        .gte("charge_date", dateRange.from.toISOString().split('T')[0])
-        .lte("charge_date", dateRange.to.toISOString().split('T')[0]);
-
-      if (error) throw error;
-
-      // Group by category
-      const byCategory: Record<string, number> = {};
-      let totalRevenue = 0;
-
-      charges?.forEach((charge: any) => {
-        const amount = charge.amount_cents;
-        if (amount > 0) { // Only count charges, not payments
-          const category = charge.charge_category || 'OTHER';
-          byCategory[category] = (byCategory[category] || 0) + amount;
-          totalRevenue += amount;
-        }
-      });
+      const res = await api.getRevenueReport(fromStr, toStr, "day");
+      const data = res.data;
 
       return {
-        totalRevenue,
-        byCategory,
-        chargeCount: charges?.filter((c: any) => c.amount_cents > 0).length || 0,
+        totalRevenue: data.summary.total_revenue_cents,
+        roomRevenue: data.summary.total_room_revenue_cents,
+        otherRevenue: data.summary.total_other_revenue_cents,
+        chargeCount: data.data.length,
+        byCategory: {
+          ROOM: data.summary.total_room_revenue_cents,
+          OTHER: data.summary.total_other_revenue_cents,
+        } as Record<string, number>,
       };
     },
   });
@@ -139,7 +78,6 @@ export default function Reports() {
 
   const handleExportExcel = () => {
     try {
-      // Create a new workbook
       const wb = XLSX.utils.book_new();
 
       // Sheet 1: Occupancy Report
@@ -156,71 +94,41 @@ export default function Reports() {
       ];
 
       const ws1 = XLSX.utils.aoa_to_sheet(occupancySheet);
-
-      // Set column widths
-      ws1['!cols'] = [
-        { wch: 25 },
-        { wch: 15 }
-      ];
-
+      ws1['!cols'] = [{ wch: 25 }, { wch: 15 }];
       XLSX.utils.book_append_sheet(wb, ws1, "Ocupación");
 
       // Sheet 2: Revenue Report
-      const revenueSheet = [
+      const revenueSheet: any[][] = [
         ["REPORTE DE INGRESOS"],
         [`Período: ${format(dateRange.from, "dd/MM/yyyy", { locale: es })} - ${format(dateRange.to, "dd/MM/yyyy", { locale: es })}`],
         [],
         ["Categoría", "Ingresos", "Porcentaje"],
       ];
 
-      // Add category data
       Object.entries(revenueData?.byCategory || {}).forEach(([category, amount]) => {
         const percentage = ((amount / (revenueData?.totalRevenue || 1)) * 100).toFixed(1);
         revenueSheet.push([
           categoryLabels[category] || category,
-          `$${(amount / 100).toFixed(2)}`,
-          `${percentage}%`
+          formatCurrencyAmount(amount / 100, currencyCode),
+          `${percentage}%`,
         ]);
       });
 
-      // Add total
       revenueSheet.push([]);
-      revenueSheet.push(["TOTAL", `$${((revenueData?.totalRevenue || 0) / 100).toFixed(2)}`, "100%"]);
-      revenueSheet.push([]);
-      revenueSheet.push(["Total de Cargos", revenueData?.chargeCount || 0]);
+      revenueSheet.push(["TOTAL", formatCurrencyAmount((revenueData?.totalRevenue || 0) / 100, currencyCode), "100%"]);
 
       const ws2 = XLSX.utils.aoa_to_sheet(revenueSheet);
-
-      // Set column widths
-      ws2['!cols'] = [
-        { wch: 20 },
-        { wch: 15 },
-        { wch: 15 }
-      ];
-
+      ws2['!cols'] = [{ wch: 20 }, { wch: 15 }, { wch: 15 }];
       XLSX.utils.book_append_sheet(wb, ws2, "Ingresos");
 
-      // Generate filename with date
-      const filename = `Reporte_SOLARIS_${format(dateRange.from, "ddMMyyyy")}-${format(dateRange.to, "ddMMyyyy")}.xlsx`;
-
-      // Write file
+      const filename = `Reporte_HotelMate_${format(dateRange.from, "ddMMyyyy")}-${format(dateRange.to, "ddMMyyyy")}.xlsx`;
       XLSX.writeFile(wb, filename);
-
       toast.success("Reporte exportado correctamente");
     } catch (error) {
       console.error("Error exporting to Excel:", error);
       toast.error("Error al exportar el reporte");
     }
   };
-
-  if (!userRoles?.hotel_id) {
-    return (
-      <div className="space-y-6">
-        <h1 className="text-3xl font-bold">Reportes</h1>
-        <p>Cargando...</p>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-6">
@@ -254,24 +162,24 @@ export default function Reports() {
               </PopoverTrigger>
               <PopoverContent className="w-auto p-0" align="start">
                 <div className="p-3 space-y-2">
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
                     className="w-full"
                     onClick={() => setDateRange({
                       from: startOfMonth(new Date()),
-                      to: endOfMonth(new Date())
+                      to: endOfMonth(new Date()),
                     })}
                   >
                     Este mes
                   </Button>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    variant="outline"
+                    size="sm"
                     className="w-full"
                     onClick={() => setDateRange({
                       from: startOfMonth(subMonths(new Date(), 1)),
-                      to: endOfMonth(subMonths(new Date(), 1))
+                      to: endOfMonth(subMonths(new Date(), 1)),
                     })}
                   >
                     Mes anterior
@@ -314,7 +222,7 @@ export default function Reports() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-3xl font-bold text-blue-600">
+                    <div className="text-3xl font-bold text-primary">
                       {occupancyData?.occupancyRate}%
                     </div>
                   </CardContent>
@@ -323,7 +231,7 @@ export default function Reports() {
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm font-medium text-muted-foreground">
-                      Total Reservas
+                      Días con Datos
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
@@ -374,12 +282,12 @@ export default function Reports() {
                       <span className="font-bold">{occupancyData?.totalRooms}</span>
                     </div>
                     <div className="flex items-center justify-between p-3 bg-muted/50 rounded-lg">
-                      <span className="text-sm font-medium">Reservas en el Período:</span>
+                      <span className="text-sm font-medium">Días con Auditoría:</span>
                       <span className="font-bold">{occupancyData?.totalReservations}</span>
                     </div>
-                    <div className="flex items-center justify-between p-3 bg-blue-50 rounded-lg">
-                      <span className="text-sm font-medium text-blue-900">Tasa de Ocupación:</span>
-                      <span className="font-bold text-blue-600 text-lg">{occupancyData?.occupancyRate}%</span>
+                    <div className="flex items-center justify-between p-3 bg-primary/10 rounded-lg">
+                      <span className="text-sm font-medium text-primary">Tasa de Ocupación:</span>
+                      <span className="font-bold text-primary text-lg">{occupancyData?.occupancyRate}%</span>
                     </div>
                   </div>
                 </CardContent>
@@ -406,8 +314,8 @@ export default function Reports() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <div className="text-3xl font-bold text-green-600">
-                      ${((revenueData?.totalRevenue || 0) / 100).toFixed(2)}
+                    <div className="text-3xl font-bold text-success">
+                      {formatCurrencyFromCents(revenueData?.totalRevenue || 0, currencyCode)}
                     </div>
                   </CardContent>
                 </Card>
@@ -415,12 +323,12 @@ export default function Reports() {
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm font-medium text-muted-foreground">
-                      Total de Cargos
+                      Ingresos Habitaciones
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="text-3xl font-bold">
-                      {revenueData?.chargeCount}
+                      {formatCurrencyFromCents(revenueData?.roomRevenue || 0, currencyCode)}
                     </div>
                   </CardContent>
                 </Card>
@@ -428,15 +336,12 @@ export default function Reports() {
                 <Card>
                   <CardHeader className="pb-3">
                     <CardTitle className="text-sm font-medium text-muted-foreground">
-                      Promedio por Cargo
+                      Otros Ingresos
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
                     <div className="text-3xl font-bold">
-                      ${revenueData?.chargeCount 
-                        ? ((revenueData.totalRevenue / revenueData.chargeCount) / 100).toFixed(2)
-                        : "0.00"
-                      }
+                      {formatCurrencyFromCents(revenueData?.otherRevenue || 0, currencyCode)}
                     </div>
                   </CardContent>
                 </Card>
@@ -452,10 +357,10 @@ export default function Reports() {
                 <CardContent>
                   <div className="space-y-3">
                     {Object.entries(revenueData?.byCategory || {}).map(([category, amount]) => {
-                      const percentage = revenueData?.totalRevenue 
+                      const percentage = revenueData?.totalRevenue
                         ? ((amount / revenueData.totalRevenue) * 100).toFixed(1)
                         : "0";
-                      
+
                       return (
                         <div key={category} className="space-y-2">
                           <div className="flex items-center justify-between">
@@ -464,12 +369,12 @@ export default function Reports() {
                             </span>
                             <div className="flex items-center gap-3">
                               <span className="text-sm text-muted-foreground">{percentage}%</span>
-                              <span className="font-bold">${(amount / 100).toFixed(2)}</span>
+                              <span className="font-bold">{formatCurrencyAmount(amount / 100, currencyCode)}</span>
                             </div>
                           </div>
                           <div className="w-full bg-muted rounded-full h-2">
-                            <div 
-                              className="bg-green-500 h-2 rounded-full transition-all"
+                            <div
+                              className="bg-success h-2 rounded-full transition-all"
                               style={{ width: `${percentage}%` }}
                             />
                           </div>

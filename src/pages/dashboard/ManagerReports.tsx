@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
@@ -32,6 +33,8 @@ import {
     useNoShowReport,
     usePaymentDistribution,
 } from '@/hooks/useReports';
+import { api } from '@/lib/api';
+import { formatCurrencyAmount, formatCurrencyFromCents, normalizeCurrencyCode } from '@/lib/currency';
 
 function daysAgo(n: number): string {
     const d = new Date();
@@ -41,8 +44,8 @@ function daysAgo(n: number): string {
 function todayStr(): string {
     return new Date().toISOString().split('T')[0];
 }
-function fmtMoney(cents: number): string {
-    return '$' + (cents / 100).toLocaleString('en-US', { minimumFractionDigits: 2 });
+function fmtMoney(cents: number, currencyCode: string): string {
+    return formatCurrencyFromCents(cents, currencyCode);
 }
 
 // ─── Stat Box ───────────────────────────────────────────────
@@ -100,7 +103,7 @@ function OccupancyTab({ from, to }: { from: string; to: string }) {
 }
 
 // ─── Tab: ADR ───────────────────────────────────────────────
-function AdrTab({ from, to }: { from: string; to: string }) {
+function AdrTab({ from, to, currencyCode }: { from: string; to: string; currencyCode: string }) {
     const { data, isLoading } = useAdrReport(from, to);
     if (isLoading) return <div className="animate-pulse h-64 bg-muted/20 rounded-lg" />;
     if (!data || !data.daily.length) return <NoData />;
@@ -114,16 +117,16 @@ function AdrTab({ from, to }: { from: string; to: string }) {
     return (
         <div className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <StatBox label="Promedio ADR" value={`$${data.summary.avg_adr}`} accent />
-                <StatBox label="Máximo" value={fmtMoney(data.summary.max_adr_cents)} />
-                <StatBox label="Mínimo" value={fmtMoney(data.summary.min_adr_cents)} />
+                <StatBox label="Promedio ADR" value={formatCurrencyAmount(Number(data.summary.avg_adr), currencyCode)} accent />
+                <StatBox label="Máximo" value={fmtMoney(data.summary.max_adr_cents, currencyCode)} />
+                <StatBox label="Mínimo" value={fmtMoney(data.summary.min_adr_cents, currencyCode)} />
             </div>
             <ResponsiveContainer width="100%" height={350}>
                 <BarChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.3)" />
                     <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${v}`} />
-                    <Tooltip formatter={(v: number) => [`$${v.toFixed(2)}`, 'ADR']} />
+                    <YAxis tick={{ fontSize: 10 }} tickFormatter={v => formatCurrencyAmount(v as number, currencyCode, 'es-DO', { maximumFractionDigits: 0 })} />
+                    <Tooltip formatter={(v: number) => [formatCurrencyAmount(v, currencyCode), 'ADR']} />
                     <Bar dataKey="adr" fill="#8b5cf6" radius={[4, 4, 0, 0]} />
                 </BarChart>
             </ResponsiveContainer>
@@ -132,7 +135,7 @@ function AdrTab({ from, to }: { from: string; to: string }) {
 }
 
 // ─── Tab: RevPAR ────────────────────────────────────────────
-function RevparTab({ from, to }: { from: string; to: string }) {
+function RevparTab({ from, to, currencyCode }: { from: string; to: string; currencyCode: string }) {
     const { data, isLoading } = useRevparReport(from, to);
     if (isLoading) return <div className="animate-pulse h-64 bg-muted/20 rounded-lg" />;
     if (!data || !data.daily.length) return <NoData />;
@@ -146,16 +149,16 @@ function RevparTab({ from, to }: { from: string; to: string }) {
     return (
         <div className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <StatBox label="Promedio RevPAR" value={`$${data.summary.avg_revpar}`} accent />
-                <StatBox label="Máximo" value={fmtMoney(data.summary.max_revpar_cents)} />
-                <StatBox label="Mínimo" value={fmtMoney(data.summary.min_revpar_cents)} />
+                <StatBox label="Promedio RevPAR" value={formatCurrencyAmount(Number(data.summary.avg_revpar), currencyCode)} accent />
+                <StatBox label="Máximo" value={fmtMoney(data.summary.max_revpar_cents, currencyCode)} />
+                <StatBox label="Mínimo" value={fmtMoney(data.summary.min_revpar_cents, currencyCode)} />
             </div>
             <ResponsiveContainer width="100%" height={350}>
                 <LineChart data={chartData}>
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.3)" />
                     <XAxis dataKey="date" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${v}`} />
-                    <Tooltip formatter={(v: number) => [`$${v.toFixed(2)}`, 'RevPAR']} />
+                    <YAxis tick={{ fontSize: 10 }} tickFormatter={v => formatCurrencyAmount(v as number, currencyCode, 'es-DO', { maximumFractionDigits: 0 })} />
+                    <Tooltip formatter={(v: number) => [formatCurrencyAmount(v, currencyCode), 'RevPAR']} />
                     <Legend />
                     <Line type="monotone" dataKey="revpar" stroke="#10b981" strokeWidth={2} dot={false} name="RevPAR" />
                 </LineChart>
@@ -165,7 +168,7 @@ function RevparTab({ from, to }: { from: string; to: string }) {
 }
 
 // ─── Tab: Revenue ───────────────────────────────────────────
-function RevenueTab({ from, to }: { from: string; to: string }) {
+function RevenueTab({ from, to, currencyCode }: { from: string; to: string; currencyCode: string }) {
     const [granularity, setGranularity] = useState<'day' | 'week' | 'month'>('day');
     const { data, isLoading } = useRevenueReport(from, to, granularity);
     if (isLoading) return <div className="animate-pulse h-64 bg-muted/20 rounded-lg" />;
@@ -194,16 +197,16 @@ function RevenueTab({ from, to }: { from: string; to: string }) {
                 ))}
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                <StatBox label="Total Revenue" value={`$${data.summary.total_revenue}`} accent />
-                <StatBox label="Room Revenue" value={`$${data.summary.total_room_revenue}`} />
-                <StatBox label="Otros Ingresos" value={`$${data.summary.total_other_revenue}`} />
+                <StatBox label="Total Revenue" value={formatCurrencyAmount(Number(data.summary.total_revenue), currencyCode)} accent />
+                <StatBox label="Room Revenue" value={formatCurrencyAmount(Number(data.summary.total_room_revenue), currencyCode)} />
+                <StatBox label="Otros Ingresos" value={formatCurrencyAmount(Number(data.summary.total_other_revenue), currencyCode)} />
             </div>
             <ResponsiveContainer width="100%" height={350}>
                 <BarChart data={chartData} barCategoryGap="15%">
                     <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.3)" />
                     <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                    <YAxis tick={{ fontSize: 10 }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
-                    <Tooltip formatter={(v: number) => [`$${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`, '']} />
+                    <YAxis tick={{ fontSize: 10 }} tickFormatter={v => formatCurrencyAmount(v as number, currencyCode, 'es-DO', { notation: 'compact', maximumFractionDigits: 1 })} />
+                    <Tooltip formatter={(v: number) => [formatCurrencyAmount(v, currencyCode), '']} />
                     <Legend wrapperStyle={{ fontSize: '11px' }} />
                     <Bar dataKey="room" name="Habitaciones" fill="#10b981" radius={[4, 4, 0, 0]} stackId="a" />
                     <Bar dataKey="other" name="Otros" fill="#6366f1" radius={[4, 4, 0, 0]} stackId="a" />
@@ -214,7 +217,7 @@ function RevenueTab({ from, to }: { from: string; to: string }) {
 }
 
 // ─── Tab: No-Shows ──────────────────────────────────────────
-function NoShowTab({ from, to }: { from: string; to: string }) {
+function NoShowTab({ from, to, currencyCode }: { from: string; to: string; currencyCode: string }) {
     const { data, isLoading } = useNoShowReport(from, to);
     if (isLoading) return <div className="animate-pulse h-64 bg-muted/20 rounded-lg" />;
     if (!data) return <NoData />;
@@ -230,7 +233,7 @@ function NoShowTab({ from, to }: { from: string; to: string }) {
                 <StatBox label="Total No-Shows" value={data.summary.total_no_shows} accent />
                 <StatBox label="Llegadas Esperadas" value={data.summary.total_expected_arrivals} />
                 <StatBox label="Rate" value={`${data.summary.no_show_rate}%`} />
-                <StatBox label="Revenue Perdido" value={`$${data.summary.lost_revenue}`} />
+                <StatBox label="Revenue Perdido" value={formatCurrencyAmount(Number(data.summary.lost_revenue), currencyCode)} />
             </div>
 
             {chartData.length > 0 ? (
@@ -263,7 +266,7 @@ function NoShowTab({ from, to }: { from: string; to: string }) {
                                     </p>
                                 </div>
                                 <div className="text-right">
-                                    <p className="text-sm font-semibold text-red-400">${r.total}</p>
+                                    <p className="text-sm font-semibold text-red-400">{formatCurrencyAmount(Number(r.total), currencyCode)}</p>
                                     <Badge variant="outline" className="text-[10px]">{r.source}</Badge>
                                 </div>
                             </div>
@@ -276,7 +279,7 @@ function NoShowTab({ from, to }: { from: string; to: string }) {
 }
 
 // ─── Tab: Payments ──────────────────────────────────────────
-function PaymentsTab({ from, to }: { from: string; to: string }) {
+function PaymentsTab({ from, to, currencyCode }: { from: string; to: string; currencyCode: string }) {
     const { data, isLoading } = usePaymentDistribution(from, to);
     if (isLoading) return <div className="animate-pulse h-64 bg-muted/20 rounded-lg" />;
     if (!data) return <NoData />;
@@ -285,9 +288,9 @@ function PaymentsTab({ from, to }: { from: string; to: string }) {
         <div className="space-y-4">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <StatBox label="Total Pagos" value={data.summary.total_payments} accent />
-                <StatBox label="Monto Total" value={`$${data.summary.total_amount}`} />
+                <StatBox label="Monto Total" value={formatCurrencyAmount(Number(data.summary.total_amount), currencyCode)} />
                 <StatBox label="Reembolsos" value={data.summary.refunds_count} />
-                <StatBox label="Net Revenue" value={fmtMoney(data.summary.net_revenue_cents)} />
+                <StatBox label="Net Revenue" value={fmtMoney(data.summary.net_revenue_cents, currencyCode)} />
             </div>
 
             <PaymentsDonut data={data.by_provider} />
@@ -301,6 +304,11 @@ function PaymentsTab({ from, to }: { from: string; to: string }) {
 export default function ManagerReports() {
     const [from, setFrom] = useState(daysAgo(30));
     const [to, setTo] = useState(todayStr());
+    const { data: hotelData } = useQuery({
+        queryKey: ['hotel-currency'],
+        queryFn: async () => (await api.getHotel()).data,
+    });
+    const currencyCode = normalizeCurrencyCode(hotelData?.currency);
 
     return (
         <div className="space-y-6 pb-8">
@@ -352,11 +360,11 @@ export default function ManagerReports() {
                 <Card>
                     <CardContent className="pt-6">
                         <TabsContent value="occupancy"><OccupancyTab from={from} to={to} /></TabsContent>
-                        <TabsContent value="adr"><AdrTab from={from} to={to} /></TabsContent>
-                        <TabsContent value="revpar"><RevparTab from={from} to={to} /></TabsContent>
-                        <TabsContent value="revenue"><RevenueTab from={from} to={to} /></TabsContent>
-                        <TabsContent value="noshows"><NoShowTab from={from} to={to} /></TabsContent>
-                        <TabsContent value="payments"><PaymentsTab from={from} to={to} /></TabsContent>
+                        <TabsContent value="adr"><AdrTab from={from} to={to} currencyCode={currencyCode} /></TabsContent>
+                        <TabsContent value="revpar"><RevparTab from={from} to={to} currencyCode={currencyCode} /></TabsContent>
+                        <TabsContent value="revenue"><RevenueTab from={from} to={to} currencyCode={currencyCode} /></TabsContent>
+                        <TabsContent value="noshows"><NoShowTab from={from} to={to} currencyCode={currencyCode} /></TabsContent>
+                        <TabsContent value="payments"><PaymentsTab from={from} to={to} currencyCode={currencyCode} /></TabsContent>
                     </CardContent>
                 </Card>
             </Tabs>

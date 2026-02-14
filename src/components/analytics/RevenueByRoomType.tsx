@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Pie, PieChart, ResponsiveContainer, Cell, Legend, Tooltip } from "recharts";
-import { useOutletContext } from "react-router-dom";
+import { Pie, PieChart, ResponsiveContainer, Cell, Tooltip } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BedDouble, DollarSign } from "lucide-react";
+import { formatCurrencyAmount, normalizeCurrencyCode } from "@/lib/currency";
 
 const COLORS = [
   "hsl(var(--primary))",
@@ -16,62 +16,35 @@ const COLORS = [
 ];
 
 export default function RevenueByRoomType() {
-  const { hotel } = useOutletContext<{ hotel: { id: string; currency: string } }>();
+  const { data: hotelData } = useQuery({
+    queryKey: ["hotel-currency"],
+    queryFn: async () => (await api.getHotel()).data,
+  });
+  const currencyCode = normalizeCurrencyCode(hotelData?.currency);
 
   const { data: roomTypeRevenue, isLoading } = useQuery({
-    queryKey: ["revenue-by-room-type", hotel.id],
+    queryKey: ["revenue-by-room-type"],
     queryFn: async () => {
-      const { data: reservations, error } = await supabase
-        .from("reservations")
-        .select(`
-          total_amount_cents,
-          status,
-          room_type_id,
-          room_types (
-            name
-          )
-        `)
-        .eq("hotel_id", hotel.id)
-        .in("status", ["CONFIRMED", "CHECKED_IN", "CHECKED_OUT"]);
+      const today = new Date().toISOString().split("T")[0];
+      const from = new Date(Date.now() - 365 * 86400000).toISOString().split("T")[0];
 
-      if (error) throw error;
+      const res = await api.getRevenueByRoomType(from, today);
+      const data = res.data;
 
-      // Agrupar por tipo de habitación
-      const typeMap = new Map<string, { revenue: number; count: number }>();
-      
-      reservations?.forEach((reservation: any) => {
-        const typeName = reservation.room_types?.name || "Sin especificar";
-        const amount = reservation.total_amount_cents || 0;
-        const current = typeMap.get(typeName) || { revenue: 0, count: 0 };
-        
-        typeMap.set(typeName, {
-          revenue: current.revenue + amount,
-          count: current.count + 1,
-        });
-      });
+      const chartData = (data.data || []).map((item: any) => ({
+        name: item.room_type_name,
+        revenue: item.total_revenue_cents / 100,
+        revenueCents: item.total_revenue_cents,
+        count: item.reservations_count,
+        avgRateCents: item.avg_rate_cents,
+        percentage: item.percentage,
+      }));
 
-      // Convertir a array
-      const chartData = Array.from(typeMap.entries())
-        .map(([name, data]) => ({
-          name,
-          revenue: data.revenue / 100,
-          count: data.count,
-          avgRevenue: data.revenue / 100 / data.count,
-          revenueFormatted: new Intl.NumberFormat("es-DO", {
-            style: "currency",
-            currency: hotel.currency,
-          }).format(data.revenue / 100),
-          avgRevenueFormatted: new Intl.NumberFormat("es-DO", {
-            style: "currency",
-            currency: hotel.currency,
-          }).format(data.revenue / 100 / data.count),
-        }))
-        .sort((a, b) => b.revenue - a.revenue);
-
-      const totalRevenue = chartData.reduce((sum, item) => sum + item.revenue, 0);
-      const totalReservations = chartData.reduce((sum, item) => sum + item.count, 0);
-
-      return { chartData, totalRevenue, totalReservations };
+      return {
+        chartData,
+        totalRevenue: data.summary.total_revenue_cents / 100,
+        totalReservations: data.summary.total_reservations,
+      };
     },
   });
 
@@ -89,14 +62,6 @@ export default function RevenueByRoomType() {
     );
   }
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat("es-DO", {
-      style: "currency",
-      currency: hotel.currency,
-      minimumFractionDigits: 0,
-    }).format(value);
-  };
-
   return (
     <Card>
       <CardHeader>
@@ -113,7 +78,7 @@ export default function RevenueByRoomType() {
           <div className="text-right">
             <div className="text-sm text-muted-foreground">Total Revenue</div>
             <div className="text-2xl font-bold">
-              {formatCurrency(roomTypeRevenue?.totalRevenue || 0)}
+              {formatCurrencyAmount(roomTypeRevenue?.totalRevenue || 0, currencyCode, "es-DO", { maximumFractionDigits: 0 })}
             </div>
           </div>
         </div>
@@ -134,7 +99,7 @@ export default function RevenueByRoomType() {
                   fill="#8884d8"
                   dataKey="revenue"
                 >
-                  {roomTypeRevenue?.chartData.map((entry, index) => (
+                  {roomTypeRevenue?.chartData.map((_entry: any, index: number) => (
                     <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                   ))}
                 </Pie>
@@ -145,7 +110,7 @@ export default function RevenueByRoomType() {
                       <div className="bg-background border rounded-lg p-3 shadow-lg">
                         <p className="font-semibold">{payload[0].payload.name}</p>
                         <p className="text-sm text-muted-foreground">
-                          Revenue: {payload[0].payload.revenueFormatted}
+                          Revenue: {formatCurrencyAmount(payload[0].payload.revenueCents / 100, currencyCode)}
                         </p>
                         <p className="text-sm text-muted-foreground">
                           Reservas: {payload[0].payload.count}
@@ -169,18 +134,18 @@ export default function RevenueByRoomType() {
                 </tr>
               </thead>
               <tbody className="divide-y text-sm">
-                {roomTypeRevenue?.chartData.map((item, index) => (
+                {roomTypeRevenue?.chartData.map((item: any, index: number) => (
                   <tr key={item.name} className="hover:bg-muted/30">
                     <td className="p-2 flex items-center gap-2">
-                      <div 
-                        className="w-3 h-3 rounded-full" 
+                      <div
+                        className="w-3 h-3 rounded-full"
                         style={{ backgroundColor: COLORS[index % COLORS.length] }}
                       />
                       {item.name}
                     </td>
                     <td className="p-2 text-right">{item.count}</td>
                     <td className="p-2 text-right font-medium">
-                      {item.avgRevenueFormatted}
+                      {formatCurrencyAmount(item.avgRateCents / 100, currencyCode)}
                     </td>
                   </tr>
                 ))}
@@ -194,7 +159,7 @@ export default function RevenueByRoomType() {
           <div className="border rounded-lg p-4 text-center">
             <DollarSign className="h-5 w-5 mx-auto mb-2 text-muted-foreground" />
             <div className="text-2xl font-bold">
-              {formatCurrency(roomTypeRevenue?.totalRevenue || 0)}
+              {formatCurrencyAmount(roomTypeRevenue?.totalRevenue || 0, currencyCode, "es-DO", { maximumFractionDigits: 0 })}
             </div>
             <div className="text-xs text-muted-foreground">Revenue Total</div>
           </div>
@@ -208,8 +173,11 @@ export default function RevenueByRoomType() {
           <div className="border rounded-lg p-4 text-center">
             <DollarSign className="h-5 w-5 mx-auto mb-2 text-muted-foreground" />
             <div className="text-2xl font-bold">
-              {formatCurrency(
-                (roomTypeRevenue?.totalRevenue || 0) / (roomTypeRevenue?.totalReservations || 1)
+              {formatCurrencyAmount(
+                (roomTypeRevenue?.totalRevenue || 0) / (roomTypeRevenue?.totalReservations || 1),
+                currencyCode,
+                "es-DO",
+                { maximumFractionDigits: 0 },
               )}
             </div>
             <div className="text-xs text-muted-foreground">ADR Promedio</div>

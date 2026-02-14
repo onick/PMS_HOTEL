@@ -1,75 +1,42 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "@/integrations/supabase/client";
+import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { DollarSign, TrendingUp, Receipt, CreditCard } from "lucide-react";
+import { formatCurrencyFromCents, normalizeCurrencyCode } from "@/lib/currency";
 
 export default function BillingStats() {
   const { data: stats } = useQuery({
     queryKey: ["billing-stats"],
     queryFn: async () => {
-      const { data: userRoles } = await supabase
-        .from("user_roles")
-        .select("hotel_id")
-        .eq("user_id", (await supabase.auth.getUser()).data.user?.id!)
-        .single();
-
-      if (!userRoles) return null;
-
-      // Obtener folios activos
-      const { data: folios } = await supabase
-        .from("folios")
-        .select("balance_cents, currency")
-        .eq("hotel_id", userRoles.hotel_id);
-
-      // Obtener reservas del mes
-      const startOfMonth = new Date();
-      startOfMonth.setDate(1);
-      const { data: monthReservations } = await supabase
-        .from("reservations")
-        .select("total_amount_cents, status")
-        .eq("hotel_id", userRoles.hotel_id)
-        .gte("created_at", startOfMonth.toISOString());
-
-      const totalPending = folios?.reduce((sum, f) => sum + (f.balance_cents || 0), 0) || 0;
-      const activeFolios = folios?.filter((f) => (f.balance_cents || 0) > 0).length || 0;
-      
-      const monthRevenue = monthReservations
-        ?.filter((r) => r.status === "CHECKED_OUT" || r.status === "CHECKED_IN")
-        .reduce((sum, r) => sum + r.total_amount_cents, 0) || 0;
-
-      const confirmedBookings = monthReservations
-        ?.filter((r) => r.status !== "CANCELLED" && r.status !== "EXPIRED").length || 0;
-
-      return {
-        totalPending: totalPending / 100,
-        activeFolios,
-        monthRevenue: monthRevenue / 100,
-        confirmedBookings,
-        currency: folios?.[0]?.currency || "USD",
-      };
+      const res = await api.getBillingStats();
+      return res.data;
     },
   });
+
+  const currencyCode = normalizeCurrencyCode(stats?.currency);
+
+  const formatCurrency = (cents: number) => formatCurrencyFromCents(cents, currencyCode);
 
   const statsData = [
     {
       title: "Pendiente de Cobro",
-      value: `$${stats?.totalPending.toFixed(2) || "0.00"}`,
+      value: formatCurrency(stats?.total_pending_cents || 0),
       icon: DollarSign,
       color: "text-destructive",
       bgColor: "bg-destructive/10",
-      description: `${stats?.activeFolios || 0} folios activos`,
+      description: `${stats?.active_folios_count || 0} folios activos`,
     },
     {
       title: "Ingresos del Mes",
-      value: `$${stats?.monthRevenue.toFixed(2) || "0.00"}`,
+      value: formatCurrency(stats?.month_revenue_cents || 0),
       icon: TrendingUp,
       color: "text-success",
       bgColor: "bg-success/10",
-      description: stats?.currency || "USD",
+      description: currencyCode,
     },
     {
       title: "Reservas Confirmadas",
-      value: stats?.confirmedBookings || 0,
+      value: stats?.confirmed_bookings || 0,
       icon: Receipt,
       color: "text-billing",
       bgColor: "bg-billing/10",
@@ -77,7 +44,7 @@ export default function BillingStats() {
     },
     {
       title: "Folios Activos",
-      value: stats?.activeFolios || 0,
+      value: stats?.active_folios_count || 0,
       icon: CreditCard,
       color: "text-primary",
       bgColor: "bg-primary/10",
