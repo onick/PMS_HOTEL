@@ -10,18 +10,19 @@ import { es } from "date-fns/locale";
 
 interface Props {
   hotelId: string;
+  currencyCode: string;
 }
 
-export default function RateCalendar({ hotelId }: Props) {
+export default function RateCalendar({ hotelId, currencyCode }: Props) {
   const [weekStart, setWeekStart] = useState(() =>
     startOfWeek(new Date(), { weekStartsOn: 1 }),
   );
   const [selectedRoomType, setSelectedRoomType] = useState<string>("all");
 
-  const formatRate = (cents: number, currency: string) =>
+  const formatRate = (cents: number) =>
     new Intl.NumberFormat("es-DO", {
       style: "currency",
-      currency: currency || "USD",
+      currency: currencyCode || "USD",
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format((cents || 0) / 100);
@@ -128,7 +129,7 @@ export default function RateCalendar({ hotelId }: Props) {
                   <td className="sticky left-0 bg-card z-10 p-2">
                     <div className="font-medium">{roomType.name}</div>
                     <div className="text-xs text-muted-foreground">
-                      Base: {formatRate(roomType.base_rate_cents || 0, roomType.currency || "USD")}
+                      Base: {formatRate(roomType.base_rate_cents || 0)}
                     </div>
                   </td>
                   {days.map((day) => {
@@ -142,7 +143,7 @@ export default function RateCalendar({ hotelId }: Props) {
                         className={`text-center p-1.5 ${isToday ? "bg-primary/5" : ""}`}
                       >
                         <div className="text-xs text-muted-foreground">
-                          {formatRate(basePrice, roomType.currency || "USD")}
+                          {formatRate(basePrice)}
                         </div>
                       </td>
                     );

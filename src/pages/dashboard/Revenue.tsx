@@ -112,7 +112,7 @@ export default function Revenue() {
         </TabsList>
 
         <TabsContent value="calendar">
-          <RateCalendar hotelId={hotel.id} />
+          <RateCalendar hotelId={hotel.id} currencyCode={currencyCode} />
         </TabsContent>
 
         <TabsContent value="plans">

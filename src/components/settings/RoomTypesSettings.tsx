@@ -68,6 +68,7 @@ export function RoomTypesSettings() {
         base_rate_cents: Math.round(parseFloat(data.base_rate) * 100),
         base_occupancy: parseInt(data.base_occupancy),
         max_occupancy: parseInt(data.max_occupancy),
+        currency,
       });
     },
     onSuccess: () => {
@@ -92,6 +93,7 @@ export function RoomTypesSettings() {
         base_rate_cents: Math.round(parseFloat(data.base_rate) * 100),
         base_occupancy: parseInt(data.base_occupancy),
         max_occupancy: parseInt(data.max_occupancy),
+        currency,
       });
     },
     onSuccess: () => {
