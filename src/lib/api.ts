@@ -163,6 +163,34 @@ class ApiClient {
         });
     }
 
+    async previewPricingCurrencyChange(data: {
+        target_currency: string;
+        rate_mode: 'auto' | 'manual';
+        manual_rate?: string | number;
+        effective_at?: string;
+        apply_to?: { room_types?: boolean; rates_by_day?: boolean; promos_penalties?: boolean };
+        request_id?: string;
+    }) {
+        return this.request<{ message: string; data: any }>('/hotel/currency/change', {
+            method: 'POST',
+            body: { ...data, dry_run: true } as Record<string, unknown>,
+        });
+    }
+
+    async applyPricingCurrencyChange(data: {
+        target_currency: string;
+        rate_mode: 'auto' | 'manual';
+        manual_rate?: string | number;
+        effective_at?: string;
+        apply_to?: { room_types?: boolean; rates_by_day?: boolean; promos_penalties?: boolean };
+        request_id?: string;
+    }) {
+        return this.request<{ message: string; data: any }>('/hotel/currency/change', {
+            method: 'POST',
+            body: { ...data, dry_run: false } as Record<string, unknown>,
+        });
+    }
+
     async getHotelStats() {
         return this.request<{ stats: HotelStats }>('/hotel/stats');
     }
@@ -840,7 +868,10 @@ export interface HotelData {
     country?: string;
     zip_code?: string;
     timezone?: string;
+    // Backward-compat: base currency (ledger) in v1.
     currency?: string;
+    base_currency?: string;
+    pricing_currency?: string;
     logo_url?: string;
     check_in_time?: string;
     check_out_time?: string;

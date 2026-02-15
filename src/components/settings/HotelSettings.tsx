@@ -4,6 +4,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -23,13 +25,25 @@ export function HotelSettings() {
     address: "",
     city: "",
     country: "",
-    currency: "",
     timezone: "",
     phone: "",
     email: "",
     check_in_time: "",
     check_out_time: "",
   });
+  const [baseCurrency, setBaseCurrency] = useState<string>("");
+  const [pricingCurrency, setPricingCurrency] = useState<string>("");
+
+  const [currencyWizardOpen, setCurrencyWizardOpen] = useState(false);
+  const [wizardTargetCurrency, setWizardTargetCurrency] = useState<string>("");
+  const [wizardRateMode, setWizardRateMode] = useState<"auto" | "manual">("auto");
+  const [wizardManualRate, setWizardManualRate] = useState<string>("");
+  const [wizardApplyTo, setWizardApplyTo] = useState({
+    room_types: true,
+    rates_by_day: true,
+    promos_penalties: true,
+  });
+  const [wizardPreview, setWizardPreview] = useState<any>(null);
 
   const { data: hotel, isLoading } = useQuery({
     queryKey: ["hotel-settings"],
@@ -41,18 +55,22 @@ export function HotelSettings() {
 
   useEffect(() => {
     if (hotel) {
+      const base = (hotel.base_currency || hotel.currency || "").toUpperCase();
+      const pricing = (hotel.pricing_currency || hotel.base_currency || hotel.currency || "").toUpperCase();
       setFormData({
         name: hotel.name || "",
         address: hotel.address || "",
         city: hotel.city || "",
         country: hotel.country || "",
-        currency: hotel.currency || "",
         timezone: hotel.timezone || "",
         phone: hotel.phone || "",
         email: hotel.email || "",
         check_in_time: normalizeTimeHHMM(hotel.check_in_time || ""),
         check_out_time: normalizeTimeHHMM(hotel.check_out_time || ""),
       });
+      setBaseCurrency(base);
+      setPricingCurrency(pricing);
+      setWizardTargetCurrency(pricing);
     }
   }, [hotel]);
 
@@ -85,6 +103,51 @@ export function HotelSettings() {
     e.preventDefault();
     updateMutation.mutate(formData);
   };
+
+  const previewCurrencyChange = useMutation({
+    mutationFn: async () => {
+      return api.previewPricingCurrencyChange({
+        target_currency: wizardTargetCurrency,
+        rate_mode: wizardRateMode,
+        manual_rate: wizardRateMode === "manual" ? wizardManualRate : undefined,
+        apply_to: wizardApplyTo,
+      });
+    },
+    onSuccess: (res: any) => {
+      setWizardPreview(res.data);
+    },
+    onError: (error: any) => {
+      setWizardPreview(null);
+      toast.error(error?.message || "No se pudo generar la previsualización");
+    },
+  });
+
+  const applyCurrencyChange = useMutation({
+    mutationFn: async () => {
+      // Reuse the preview request_id for idempotency if available.
+      const requestId = wizardPreview?.request_id;
+      return api.applyPricingCurrencyChange({
+        target_currency: wizardTargetCurrency,
+        rate_mode: wizardRateMode,
+        manual_rate: wizardRateMode === "manual" ? wizardManualRate : undefined,
+        apply_to: wizardApplyTo,
+        request_id: requestId,
+      });
+    },
+    onSuccess: (res: any) => {
+      const nextPricing = (res?.data?.hotel?.pricing_currency || wizardTargetCurrency || "").toUpperCase();
+      setPricingCurrency(nextPricing);
+      queryClient.invalidateQueries({ queryKey: ["hotel-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["room-types-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["room-types"] });
+      toast.success(res?.message || "Moneda de tarifas actualizada");
+      setCurrencyWizardOpen(false);
+      setWizardPreview(null);
+    },
+    onError: (error: any) => {
+      toast.error(error?.message || "No se pudo aplicar el cambio de moneda");
+    },
+  });
 
   if (isLoading) {
     return (
@@ -166,24 +229,34 @@ export function HotelSettings() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="currency">Moneda</Label>
-              <Select
-                value={formData.currency}
-                onValueChange={(value) => setFormData({ ...formData, currency: value })}
-              >
-                <SelectTrigger id="currency">
-                  <SelectValue placeholder="Seleccionar moneda" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="MXN">MXN - Peso Mexicano</SelectItem>
-                  <SelectItem value="DOP">DOP - Peso Dominicano</SelectItem>
-                  <SelectItem value="USD">USD - Dólar</SelectItem>
-                  <SelectItem value="EUR">EUR - Euro</SelectItem>
-                  <SelectItem value="COP">COP - Peso Colombiano</SelectItem>
-                  <SelectItem value="ARS">ARS - Peso Argentino</SelectItem>
-                  <SelectItem value="BRL">BRL - Real Brasileño</SelectItem>
-                </SelectContent>
-              </Select>
+              <Label>Moneda base contable</Label>
+              <Input value={baseCurrency || "-"} disabled />
+              <p className="text-xs text-muted-foreground">
+                Bloqueada en v1 (reportes, impuestos, balances, night audit).
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label>Moneda de tarifas/venta</Label>
+              <div className="flex items-center gap-2">
+                <Input value={pricingCurrency || "-"} disabled />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setCurrencyWizardOpen(true);
+                    setWizardPreview(null);
+                    setWizardTargetCurrency(pricingCurrency || baseCurrency || "USD");
+                    setWizardRateMode("auto");
+                    setWizardManualRate("");
+                  }}
+                >
+                  Cambiar
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Se cambia por wizard (tasa del día + preview). No modifica folios/pagos/reservas existentes.
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -233,6 +306,136 @@ export function HotelSettings() {
             </Button>
           </div>
         </form>
+
+        <Dialog open={currencyWizardOpen} onOpenChange={(open) => {
+          setCurrencyWizardOpen(open);
+          if (!open) setWizardPreview(null);
+        }}>
+          <DialogContent className="sm:max-w-[720px]">
+            <DialogHeader>
+              <DialogTitle>Cambiar moneda de tarifas/venta</DialogTitle>
+              <DialogDescription>
+                Usa tasa del día (server-side) y convierte solo precios futuros. No altera folios, pagos ni reservas existentes.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Moneda objetivo</Label>
+                <Select value={wizardTargetCurrency} onValueChange={(v) => setWizardTargetCurrency(v)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar moneda" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="DOP">DOP - Peso Dominicano</SelectItem>
+                    <SelectItem value="USD">USD - Dólar</SelectItem>
+                    <SelectItem value="EUR">EUR - Euro</SelectItem>
+                    <SelectItem value="MXN">MXN - Peso Mexicano</SelectItem>
+                    <SelectItem value="COP">COP - Peso Colombiano</SelectItem>
+                    <SelectItem value="ARS">ARS - Peso Argentino</SelectItem>
+                    <SelectItem value="BRL">BRL - Real Brasileño</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label>Modo de tasa</Label>
+                <Select value={wizardRateMode} onValueChange={(v) => setWizardRateMode(v as any)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Automática (tasa del día)</SelectItem>
+                    <SelectItem value="manual">Manual</SelectItem>
+                  </SelectContent>
+                </Select>
+                {wizardRateMode === "manual" && (
+                  <Input
+                    placeholder="Ej: 60.00 (1 USD = 60 DOP)"
+                    value={wizardManualRate}
+                    onChange={(e) => setWizardManualRate(e.target.value)}
+                  />
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-3 rounded-lg border p-3">
+              <div className="text-sm font-medium">Aplicar a</div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={wizardApplyTo.room_types}
+                    onCheckedChange={(checked) => setWizardApplyTo((s) => ({ ...s, room_types: Boolean(checked) }))}
+                  />
+                  <span>RoomType base rates</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={wizardApplyTo.rates_by_day}
+                    onCheckedChange={(checked) => setWizardApplyTo((s) => ({ ...s, rates_by_day: Boolean(checked) }))}
+                  />
+                  <span>Rates by day</span>
+                </label>
+                <label className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={wizardApplyTo.promos_penalties}
+                    onCheckedChange={(checked) => setWizardApplyTo((s) => ({ ...s, promos_penalties: Boolean(checked) }))}
+                  />
+                  <span>Promos/penalidades</span>
+                </label>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => previewCurrencyChange.mutate()}
+                disabled={previewCurrencyChange.isPending || !wizardTargetCurrency}
+              >
+                {previewCurrencyChange.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Previsualizar
+              </Button>
+              {wizardPreview?.rate && (
+                <div className="text-xs text-muted-foreground">
+                  Tasa: 1 {wizardPreview.rate.quote_currency} = {wizardPreview.rate.rate} {wizardPreview.rate.base_currency}
+                  {" · "}
+                  Fuente: {wizardPreview.rate.source}
+                </div>
+              )}
+            </div>
+
+            {wizardPreview?.preview?.room_types?.items?.length ? (
+              <div className="rounded-lg border p-3">
+                <div className="text-sm font-medium mb-2">Preview (muestra)</div>
+                <div className="space-y-2">
+                  {wizardPreview.preview.room_types.items.slice(0, 3).map((it: any) => (
+                    <div key={it.id} className="flex items-center justify-between text-sm">
+                      <span className="truncate">{it.name}</span>
+                      <span className="text-muted-foreground">
+                        {it.from_cents / 100} {it.from_currency} → {it.to_cents / 100} {it.to_currency}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="outline" onClick={() => setCurrencyWizardOpen(false)}>
+                Cancelar
+              </Button>
+              <Button
+                type="button"
+                onClick={() => applyCurrencyChange.mutate()}
+                disabled={applyCurrencyChange.isPending || !wizardPreview}
+              >
+                {applyCurrencyChange.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                Confirmar y aplicar
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );

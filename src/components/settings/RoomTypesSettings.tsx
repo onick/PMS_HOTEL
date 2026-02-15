@@ -47,7 +47,7 @@ export function RoomTypesSettings() {
       return res.data;
     },
   });
-  const currency = hotelData?.currency || "USD";
+  const currency = hotelData?.pricing_currency || hotelData?.currency || "USD";
 
   // Fetch room types from Laravel API
   const { data: roomTypes, isLoading } = useQuery({

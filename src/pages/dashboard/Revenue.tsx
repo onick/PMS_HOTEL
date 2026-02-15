@@ -12,7 +12,7 @@ import { formatCurrencyAmount, normalizeCurrencyCode } from "@/lib/currency";
 
 export default function Revenue() {
   const { hotel } = useOutletContext<{ hotel: { id: string; currency?: string } }>();
-  const currencyCode = normalizeCurrencyCode(hotel?.currency);
+  const currencyCode = normalizeCurrencyCode((hotel as any)?.pricing_currency ?? hotel?.currency);
 
   const { data: stats } = useQuery({
     queryKey: ["revenue-stats"],
