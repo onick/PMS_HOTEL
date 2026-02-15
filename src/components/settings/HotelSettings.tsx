@@ -9,6 +9,13 @@ import { Loader2 } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import api, { type HotelData } from "@/lib/api";
 
+function normalizeTimeHHMM(value: string): string {
+  // Backend/MySQL may send "HH:MM:SS"; `<input type="time">` and API validation expect "HH:MM".
+  if (!value) return "";
+  const m = value.match(/^(\d{2}:\d{2})/);
+  return m ? m[1] : value;
+}
+
 export function HotelSettings() {
   const queryClient = useQueryClient();
   const [formData, setFormData] = useState({
@@ -43,8 +50,8 @@ export function HotelSettings() {
         timezone: hotel.timezone || "",
         phone: hotel.phone || "",
         email: hotel.email || "",
-        check_in_time: hotel.check_in_time || "",
-        check_out_time: hotel.check_out_time || "",
+        check_in_time: normalizeTimeHHMM(hotel.check_in_time || ""),
+        check_out_time: normalizeTimeHHMM(hotel.check_out_time || ""),
       });
     }
   }, [hotel]);
@@ -52,9 +59,16 @@ export function HotelSettings() {
   const updateMutation = useMutation({
     mutationFn: async (data: typeof formData) => {
       // Filter out empty strings so we don't overwrite with nulls
-      const cleaned = Object.fromEntries(
-        Object.entries(data).filter(([_, v]) => v !== "")
-      );
+      const cleaned = Object.fromEntries(Object.entries(data).filter(([_, v]) => v !== ""));
+
+      // Ensure time fields are always sent as "HH:MM" (some browsers/DB values include seconds).
+      if (typeof cleaned.check_in_time === "string") {
+        cleaned.check_in_time = normalizeTimeHHMM(cleaned.check_in_time);
+      }
+      if (typeof cleaned.check_out_time === "string") {
+        cleaned.check_out_time = normalizeTimeHHMM(cleaned.check_out_time);
+      }
+
       return api.updateHotel(cleaned);
     },
     onSuccess: (response) => {
