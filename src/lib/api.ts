@@ -83,6 +83,13 @@ class ApiClient {
         return res;
     }
 
+    async forgotPassword(email: string) {
+        return this.request<{ message: string }>('/auth/forgot-password', {
+            method: 'POST',
+            body: { email },
+        });
+    }
+
     async register(data: { name: string; email: string; password: string; password_confirmation: string; hotel_name: string }) {
         const res = await this.request<{ token: string; user: any }>('/auth/register', {
             method: 'POST',
@@ -295,6 +302,44 @@ class ApiClient {
         return this.request<{ message: string }>(`/rate-plans/${id}`, { method: 'DELETE' });
     }
 
+    // --- Revenue Settings ---
+    async getRevenueSettings() {
+        return this.request<{ data: any }>('/revenue-settings');
+    }
+    async updateRevenueSettings(data: {
+        enable_dynamic_pricing: boolean;
+        occupancy_weight: number;
+        competitor_weight: number;
+        min_price_threshold_percent: number;
+        max_price_threshold_percent: number;
+    }) {
+        return this.request<{ message: string; data: any }>('/revenue-settings', {
+            method: 'PUT',
+            body: data,
+        });
+    }
+
+    // --- Competitor Rates ---
+    async getCompetitorRates(params?: Record<string, string>) {
+        return this.request<{ data: any[] }>('/competitor-rates', { params });
+    }
+    async createCompetitorRate(data: {
+        competitor_name: string;
+        room_type_description?: string | null;
+        date: string;
+        rate_cents: number;
+        currency?: string;
+        source?: 'MANUAL' | 'SCRAPER' | 'API' | 'OTA';
+    }) {
+        return this.request<{ message: string; data: any }>('/competitor-rates', {
+            method: 'POST',
+            body: data,
+        });
+    }
+    async deleteCompetitorRate(id: number) {
+        return this.request<{ message: string }>(`/competitor-rates/${id}`, { method: 'DELETE' });
+    }
+
     // --- Promo Codes ---
     async getPromoCodes(params?: Record<string, string>) {
         const query = params ? '?' + new URLSearchParams(params).toString() : '';
@@ -341,6 +386,29 @@ class ApiClient {
     async updateIncidentStatus(incidentId: number, data: { status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED'; comment?: string }) {
         return this.request<{ message: string; data: any }>(`/incidents/${incidentId}/status`, {
             method: 'PATCH',
+            body: data,
+        });
+    }
+
+    // --- Tasks ---
+    async getTasks(params?: Record<string, string>) {
+        return this.request<{ data: any[]; meta?: any }>('/tasks', { params });
+    }
+    async createTask(data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>('/tasks', { method: 'POST', body: data });
+    }
+    async getTask(taskId: number) {
+        return this.request<{ data: any }>(`/tasks/${taskId}`);
+    }
+    async updateTask(taskId: number, data: Record<string, unknown>) {
+        return this.request<{ message: string; data: any }>(`/tasks/${taskId}`, { method: 'PUT', body: data });
+    }
+    async deleteTask(taskId: number) {
+        return this.request<{ message: string }>(`/tasks/${taskId}`, { method: 'DELETE' });
+    }
+    async addTaskComment(taskId: number, data: { content: string }) {
+        return this.request<{ message: string; data: any }>(`/tasks/${taskId}/comments`, {
+            method: 'POST',
             body: data,
         });
     }

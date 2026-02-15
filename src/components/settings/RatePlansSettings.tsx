@@ -10,8 +10,11 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Pencil, Trash2, Percent } from "lucide-react";
 import { toast } from "sonner";
+
+type CancellationPolicyType = "FREE" | "NON_REFUNDABLE" | "PARTIAL";
 
 interface RatePlan {
   id: number;
@@ -46,9 +49,39 @@ export function RatePlansSettings() {
     is_refundable: true,
     min_nights: "",
     max_nights: "",
+    cancellation_type: "FREE" as CancellationPolicyType,
+    cancellation_deadline_hours: "24",
+    cancellation_penalty_percent: "",
   });
 
   const queryClient = useQueryClient();
+
+  const buildCancellationPolicyPayload = (data: typeof formData) => {
+    const type = data.cancellation_type;
+    const deadlineHours = data.cancellation_deadline_hours
+      ? parseInt(data.cancellation_deadline_hours, 10)
+      : 24;
+
+    if (type === "NON_REFUNDABLE") {
+      return { type };
+    }
+
+    if (type === "PARTIAL") {
+      const penaltyPercent = data.cancellation_penalty_percent
+        ? Number(data.cancellation_penalty_percent)
+        : 50;
+      return {
+        type,
+        deadline_hours: deadlineHours,
+        penalty_percent: penaltyPercent,
+      };
+    }
+
+    return {
+      type: "FREE" as CancellationPolicyType,
+      deadline_hours: deadlineHours,
+    };
+  };
 
   // Fetch rate plans from Laravel API
   const { data: ratePlans, isLoading } = useQuery({
@@ -72,6 +105,7 @@ export function RatePlansSettings() {
         is_refundable: data.is_refundable,
         min_nights: data.min_nights ? parseInt(data.min_nights) : null,
         max_nights: data.max_nights ? parseInt(data.max_nights) : null,
+        cancellation_policy: buildCancellationPolicyPayload(data),
       });
     },
     onSuccess: () => {
@@ -99,6 +133,7 @@ export function RatePlansSettings() {
         is_refundable: data.is_refundable,
         min_nights: data.min_nights ? parseInt(data.min_nights) : null,
         max_nights: data.max_nights ? parseInt(data.max_nights) : null,
+        cancellation_policy: buildCancellationPolicyPayload(data),
       });
     },
     onSuccess: () => {
@@ -140,6 +175,9 @@ export function RatePlansSettings() {
       is_refundable: true,
       min_nights: "",
       max_nights: "",
+      cancellation_type: "FREE",
+      cancellation_deadline_hours: "24",
+      cancellation_penalty_percent: "",
     });
   };
 
@@ -155,12 +193,32 @@ export function RatePlansSettings() {
       is_refundable: plan.is_refundable,
       min_nights: plan.min_nights?.toString() || "",
       max_nights: plan.max_nights?.toString() || "",
+      cancellation_type: plan.cancellation_policy?.type || (plan.is_refundable ? "FREE" : "NON_REFUNDABLE"),
+      cancellation_deadline_hours: plan.cancellation_policy?.deadline_hours?.toString() || "24",
+      cancellation_penalty_percent: plan.cancellation_policy?.penalty_percent?.toString() || "",
     });
     setOpen(true);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (formData.cancellation_type !== "NON_REFUNDABLE") {
+      const deadline = Number(formData.cancellation_deadline_hours || "24");
+      if (!Number.isFinite(deadline) || deadline < 0) {
+        toast.error("La ventana de cancelación debe ser 0 o mayor");
+        return;
+      }
+    }
+
+    if (formData.cancellation_type === "PARTIAL") {
+      const penalty = Number(formData.cancellation_penalty_percent);
+      if (!Number.isFinite(penalty) || penalty <= 0 || penalty > 100) {
+        toast.error("La penalidad debe ser mayor a 0 y menor o igual a 100%");
+        return;
+      }
+    }
+
     if (editingPlan) {
       updateMutation.mutate({ ...formData, id: editingPlan.id });
     } else {
@@ -304,6 +362,67 @@ export function RatePlansSettings() {
                   </div>
                 </div>
 
+                <div className="space-y-3 border rounded-md p-4">
+                  <Label className="text-sm font-medium">Política de Cancelación</Label>
+                  <div className="space-y-2">
+                    <Label htmlFor="cancellation_type">Tipo</Label>
+                    <Select
+                      value={formData.cancellation_type}
+                      onValueChange={(value: CancellationPolicyType) => {
+                        setFormData((prev) => ({
+                          ...prev,
+                          cancellation_type: value,
+                          is_refundable: value !== "NON_REFUNDABLE",
+                          cancellation_penalty_percent:
+                            value === "PARTIAL" ? prev.cancellation_penalty_percent || "50" : "",
+                        }));
+                      }}
+                    >
+                      <SelectTrigger id="cancellation_type">
+                        <SelectValue placeholder="Seleccionar política" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="FREE">Cancelación gratis</SelectItem>
+                        <SelectItem value="PARTIAL">Penalidad parcial</SelectItem>
+                        <SelectItem value="NON_REFUNDABLE">No reembolsable</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {formData.cancellation_type !== "NON_REFUNDABLE" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="cancellation_deadline_hours">Horas antes del check-in</Label>
+                      <Input
+                        id="cancellation_deadline_hours"
+                        type="number"
+                        min="0"
+                        placeholder="24"
+                        value={formData.cancellation_deadline_hours}
+                        onChange={(e) =>
+                          setFormData({ ...formData, cancellation_deadline_hours: e.target.value })
+                        }
+                      />
+                    </div>
+                  )}
+
+                  {formData.cancellation_type === "PARTIAL" && (
+                    <div className="space-y-2">
+                      <Label htmlFor="cancellation_penalty_percent">Penalidad (%)</Label>
+                      <Input
+                        id="cancellation_penalty_percent"
+                        type="number"
+                        min="1"
+                        max="100"
+                        placeholder="50"
+                        value={formData.cancellation_penalty_percent}
+                        onChange={(e) =>
+                          setFormData({ ...formData, cancellation_penalty_percent: e.target.value })
+                        }
+                      />
+                    </div>
+                  )}
+                </div>
+
                 <DialogFooter>
                   <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
                     {createMutation.isPending || updateMutation.isPending ? "Guardando..." : editingPlan ? "Actualizar" : "Crear"}
@@ -355,6 +474,17 @@ export function RatePlansSettings() {
                       )}
                       {plan.is_refundable && (
                         <Badge variant="secondary" className="text-xs">Reembolsable</Badge>
+                      )}
+                      {plan.cancellation_policy?.type === "FREE" && (
+                        <Badge variant="secondary" className="text-xs">Cancelación gratis</Badge>
+                      )}
+                      {plan.cancellation_policy?.type === "PARTIAL" && (
+                        <Badge variant="secondary" className="text-xs">
+                          Penalidad {plan.cancellation_policy.penalty_percent}%
+                        </Badge>
+                      )}
+                      {plan.cancellation_policy?.type === "NON_REFUNDABLE" && (
+                        <Badge variant="secondary" className="text-xs">No reembolsable</Badge>
                       )}
                       {plan.min_nights && (
                         <Badge variant="secondary" className="text-xs">Min {plan.min_nights}n</Badge>

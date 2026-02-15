@@ -6,14 +6,25 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Settings, Zap } from "lucide-react";
 import { toast } from "sonner";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { api } from "@/lib/api";
 
 interface Props {
   hotelId: string;
 }
 
+interface RevenueSettingsForm {
+  enable_dynamic_pricing: boolean;
+  occupancy_weight: number;
+  competitor_weight: number;
+  min_price_threshold_percent: number;
+  max_price_threshold_percent: number;
+}
+
 export default function RevenueSettings({ hotelId }: Props) {
-  const [form, setForm] = useState({
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState<RevenueSettingsForm>({
     enable_dynamic_pricing: false,
     occupancy_weight: 70,
     competitor_weight: 30,
@@ -21,9 +32,48 @@ export default function RevenueSettings({ hotelId }: Props) {
     max_price_threshold_percent: 150,
   });
 
+  const { data: settings, isLoading } = useQuery({
+    queryKey: ["revenue-settings", hotelId],
+    queryFn: async () => {
+      const res = await api.getRevenueSettings();
+      return res.data as Partial<RevenueSettingsForm>;
+    },
+    enabled: !!hotelId,
+  });
+
+  useEffect(() => {
+    if (!settings) return;
+    setForm({
+      enable_dynamic_pricing: Boolean(settings.enable_dynamic_pricing),
+      occupancy_weight: Number(settings.occupancy_weight ?? 70),
+      competitor_weight: Number(settings.competitor_weight ?? 30),
+      min_price_threshold_percent: Number(settings.min_price_threshold_percent ?? 70),
+      max_price_threshold_percent: Number(settings.max_price_threshold_percent ?? 150),
+    });
+  }, [settings]);
+
+  const updateMutation = useMutation({
+    mutationFn: async (payload: RevenueSettingsForm) => api.updateRevenueSettings(payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["revenue-settings", hotelId] });
+      toast.success("Configuración guardada");
+    },
+    onError: (error: any) => {
+      toast.error(error?.data?.message || error?.message || "No se pudo guardar la configuración");
+    },
+  });
+
   const handleSave = () => {
-    // TODO: Wire up when backend revenue_settings endpoint is available
-    toast.info("Configuración de pricing dinámico próximamente disponible");
+    if (form.occupancy_weight + form.competitor_weight !== 100) {
+      toast.error("Los pesos deben sumar 100%");
+      return;
+    }
+    if (form.min_price_threshold_percent > form.max_price_threshold_percent) {
+      toast.error("El mínimo no puede ser mayor que el máximo");
+      return;
+    }
+
+    updateMutation.mutate(form);
   };
 
   return (
@@ -51,6 +101,7 @@ export default function RevenueSettings({ hotelId }: Props) {
               onCheckedChange={(checked) =>
                 setForm({ ...form, enable_dynamic_pricing: checked })
               }
+              disabled={isLoading || updateMutation.isPending}
             />
           </div>
         </CardContent>
@@ -84,6 +135,7 @@ export default function RevenueSettings({ hotelId }: Props) {
               min={0}
               max={100}
               step={5}
+              disabled={isLoading || updateMutation.isPending}
             />
             <p className="text-xs text-muted-foreground">
               Mayor ocupación = tarifas más altas
@@ -107,6 +159,7 @@ export default function RevenueSettings({ hotelId }: Props) {
               min={0}
               max={100}
               step={5}
+              disabled={isLoading || updateMutation.isPending}
             />
             <p className="text-xs text-muted-foreground">
               Ajusta según precios de competidores cercanos
@@ -135,6 +188,7 @@ export default function RevenueSettings({ hotelId }: Props) {
                 onChange={(e) =>
                   setForm({ ...form, min_price_threshold_percent: Number(e.target.value) })
                 }
+                disabled={isLoading || updateMutation.isPending}
               />
               <p className="text-xs text-muted-foreground">
                 Nunca bajar de este % de la tarifa base
@@ -151,6 +205,7 @@ export default function RevenueSettings({ hotelId }: Props) {
                 onChange={(e) =>
                   setForm({ ...form, max_price_threshold_percent: Number(e.target.value) })
                 }
+                disabled={isLoading || updateMutation.isPending}
               />
               <p className="text-xs text-muted-foreground">
                 Nunca subir más de este % de la tarifa base
@@ -158,8 +213,8 @@ export default function RevenueSettings({ hotelId }: Props) {
             </div>
           </div>
 
-          <Button onClick={handleSave} className="w-full">
-            Guardar Configuración
+          <Button onClick={handleSave} className="w-full" disabled={isLoading || updateMutation.isPending}>
+            {updateMutation.isPending ? "Guardando..." : "Guardar Configuración"}
           </Button>
         </CardContent>
       </Card>

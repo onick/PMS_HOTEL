@@ -98,7 +98,29 @@ const Auth = () => {
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast.info("Funcionalidad de recuperación de contraseña próximamente");
+    setLoading(true);
+
+    try {
+      await api.forgotPassword(resetEmail);
+      toast.success("Si el correo existe, te enviaremos un enlace de recuperación.");
+      setShowResetForm(false);
+      setResetEmail("");
+    } catch (err) {
+      if (err instanceof ApiError) {
+        if (err.statusCode === 429) {
+          toast.error("Demasiados intentos. Inténtalo de nuevo en unos minutos.");
+        } else if (err.data?.errors) {
+          const firstError = Object.values(err.data.errors).flat()[0];
+          toast.error(firstError as string);
+        } else {
+          toast.error(err.message || "No se pudo procesar la solicitud");
+        }
+      } else {
+        toast.error("Error de conexión con el servidor");
+      }
+    }
+
+    setLoading(false);
   };
 
   return (

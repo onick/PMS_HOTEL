@@ -1,9 +1,10 @@
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Pie, PieChart, ResponsiveContainer, Cell, Tooltip } from "recharts";
+import { Pie, PieChart, ResponsiveContainer, Cell } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
-import { BedDouble, DollarSign } from "lucide-react";
+import { BedDouble, DollarSign, TrendingUp } from "lucide-react";
 import { formatCurrencyAmount, normalizeCurrencyCode } from "@/lib/currency";
 
 const COLORS = [
@@ -15,14 +16,31 @@ const COLORS = [
   "hsl(var(--crm))",
 ];
 
+interface RevenueByRoomTypeItem {
+  name: string;
+  revenue: number;
+  revenueCents: number;
+  count: number;
+  avgRateCents: number;
+}
+
+interface RevenueByRoomTypeData {
+  chartData: RevenueByRoomTypeItem[];
+  totalRevenue: number;
+  totalReservations: number;
+}
+
 export default function RevenueByRoomType() {
+  const [activeIndex, setActiveIndex] = useState(0);
+
   const { data: hotelData } = useQuery({
     queryKey: ["hotel-currency"],
     queryFn: async () => (await api.getHotel()).data,
   });
+
   const currencyCode = normalizeCurrencyCode(hotelData?.currency);
 
-  const { data: roomTypeRevenue, isLoading } = useQuery({
+  const { data: roomTypeRevenue, isLoading } = useQuery<RevenueByRoomTypeData>({
     queryKey: ["revenue-by-room-type"],
     queryFn: async () => {
       const today = new Date().toISOString().split("T")[0];
@@ -31,13 +49,12 @@ export default function RevenueByRoomType() {
       const res = await api.getRevenueByRoomType(from, today);
       const data = res.data;
 
-      const chartData = (data.data || []).map((item: any) => ({
+      const chartData: RevenueByRoomTypeItem[] = (data.data || []).map((item: any) => ({
         name: item.room_type_name,
         revenue: item.total_revenue_cents / 100,
         revenueCents: item.total_revenue_cents,
         count: item.reservations_count,
         avgRateCents: item.avg_rate_cents,
-        percentage: item.percentage,
       }));
 
       return {
@@ -48,6 +65,51 @@ export default function RevenueByRoomType() {
     },
   });
 
+  const rankingData = useMemo(() => {
+    const items = roomTypeRevenue?.chartData || [];
+    const totalRevenueCents = items.reduce((sum, item) => sum + item.revenueCents, 0);
+
+    return [...items]
+      .sort((a, b) => b.revenueCents - a.revenueCents)
+      .map((item) => ({
+        ...item,
+        share: totalRevenueCents > 0 ? (item.revenueCents / totalRevenueCents) * 100 : 0,
+      }));
+  }, [roomTypeRevenue?.chartData]);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [rankingData.length]);
+
+  const activeSlice = rankingData[activeIndex] || rankingData[0] || null;
+  const shouldShowDonutLabels =
+    rankingData.filter((item) => item.share >= 6).length >= 2;
+
+  const renderDonutLabel = (props: any) => {
+    const { cx, cy, midAngle, outerRadius, percent } = props;
+    if (!shouldShowDonutLabels) return null;
+    if (!percent || percent < 0.06) return null;
+
+    const RADIAN = Math.PI / 180;
+    const radius = (outerRadius || 0) + 16;
+    const x = cx + radius * Math.cos(-midAngle * RADIAN);
+    const y = cy + radius * Math.sin(-midAngle * RADIAN);
+
+    return (
+      <text
+        x={x}
+        y={y}
+        fill="hsl(var(--foreground))"
+        textAnchor={x > cx ? "start" : "end"}
+        dominantBaseline="central"
+        fontSize={12}
+        fontWeight={600}
+      >
+        {(percent * 100).toFixed(0)}%
+      </text>
+    );
+  };
+
   if (isLoading) {
     return (
       <Card>
@@ -56,7 +118,7 @@ export default function RevenueByRoomType() {
           <Skeleton className="h-4 w-64 mt-2" />
         </CardHeader>
         <CardContent>
-          <Skeleton className="h-[300px] w-full" />
+          <Skeleton className="h-[320px] w-full" />
         </CardContent>
       </Card>
     );
@@ -65,114 +127,147 @@ export default function RevenueByRoomType() {
   return (
     <Card>
       <CardHeader>
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-4">
           <div>
             <CardTitle className="flex items-center gap-2">
               <BedDouble className="h-5 w-5 text-housekeeping" />
               Revenue por Tipo de Habitación
             </CardTitle>
             <CardDescription>
-              Distribución de ingresos por categoría
+              Distribución y rendimiento comercial por categoría
             </CardDescription>
           </div>
           <div className="text-right">
-            <div className="text-sm text-muted-foreground">Total Revenue</div>
+            <div className="text-xs text-muted-foreground">Total Revenue</div>
             <div className="text-2xl font-bold">
               {formatCurrencyAmount(roomTypeRevenue?.totalRevenue || 0, currencyCode, "es-DO", { maximumFractionDigits: 0 })}
             </div>
           </div>
         </div>
       </CardHeader>
+
       <CardContent>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Gráfico de pastel */}
-          <div>
-            <ResponsiveContainer width="100%" height={300}>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <div className="relative rounded-lg border bg-muted/20 p-3">
+            <ResponsiveContainer width="100%" height={320}>
               <PieChart>
                 <Pie
-                  data={roomTypeRevenue?.chartData || []}
+                  data={rankingData}
                   cx="50%"
                   cy="50%"
-                  labelLine={false}
-                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                  outerRadius={100}
-                  fill="#8884d8"
+                  innerRadius={72}
+                  outerRadius={112}
+                  paddingAngle={2}
                   dataKey="revenue"
+                  labelLine={false}
+                  label={renderDonutLabel}
+                  startAngle={90}
+                  endAngle={-270}
+                  onMouseEnter={(_, index) => setActiveIndex(index)}
                 >
-                  {roomTypeRevenue?.chartData.map((_entry: any, index: number) => (
-                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  {rankingData.map((_entry, index) => (
+                    <Cell
+                      key={`cell-${index}`}
+                      fill={COLORS[index % COLORS.length]}
+                      stroke="hsl(var(--background))"
+                      strokeWidth={2}
+                      opacity={activeIndex === index ? 1 : 0.72}
+                    />
                   ))}
                 </Pie>
-                <Tooltip
-                  content={({ active, payload }) => {
-                    if (!active || !payload?.length) return null;
-                    return (
-                      <div className="bg-background border rounded-lg p-3 shadow-lg">
-                        <p className="font-semibold">{payload[0].payload.name}</p>
-                        <p className="text-sm text-muted-foreground">
-                          Revenue: {formatCurrencyAmount(payload[0].payload.revenueCents / 100, currencyCode)}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          Reservas: {payload[0].payload.count}
-                        </p>
-                      </div>
-                    );
-                  }}
-                />
               </PieChart>
             </ResponsiveContainer>
+            {activeSlice && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+                <div className="text-center px-4">
+                  <p className="text-3xl font-bold leading-none">
+                    {activeSlice.share.toFixed(1)}%
+                  </p>
+                  <p
+                    className="text-sm font-medium mt-2 truncate max-w-[180px]"
+                    title={activeSlice.name}
+                  >
+                    {activeSlice.name}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {formatCurrencyAmount(activeSlice.revenueCents / 100, currencyCode)}
+                  </p>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Tabla de estadísticas */}
-          <div className="border rounded-lg overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-muted/50">
-                <tr>
-                  <th className="text-left p-2 text-sm font-semibold">Tipo</th>
-                  <th className="text-right p-2 text-sm font-semibold">Reservas</th>
-                  <th className="text-right p-2 text-sm font-semibold">ADR</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y text-sm">
-                {roomTypeRevenue?.chartData.map((item: any, index: number) => (
-                  <tr key={item.name} className="hover:bg-muted/30">
-                    <td className="p-2 flex items-center gap-2">
-                      <div
-                        className="w-3 h-3 rounded-full"
-                        style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                      />
-                      {item.name}
-                    </td>
-                    <td className="p-2 text-right">{item.count}</td>
-                    <td className="p-2 text-right font-medium">
-                      {formatCurrencyAmount(item.avgRateCents / 100, currencyCode)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="rounded-lg border overflow-hidden">
+            <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between">
+              <p className="text-sm font-semibold">Ranking por Revenue</p>
+              <p className="text-xs text-muted-foreground">Últimos 12 meses</p>
+            </div>
+
+            <div className="max-h-[320px] overflow-y-auto p-3 space-y-3">
+              {rankingData.length === 0 && (
+                <div className="text-sm text-muted-foreground text-center py-8">
+                  No hay datos por tipo de habitación.
+                </div>
+              )}
+
+              {rankingData.map((item, index) => (
+                <div key={item.name} className="rounded-md border p-3 bg-background/70">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 rounded-full text-[11px] font-semibold flex items-center justify-center text-white" style={{ backgroundColor: COLORS[index % COLORS.length] }}>
+                          {index + 1}
+                        </div>
+                        <p className="font-medium truncate">{item.name}</p>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {item.count} reservas • ADR {formatCurrencyAmount(item.avgRateCents / 100, currencyCode)}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p className="font-semibold">
+                        {formatCurrencyAmount(item.revenueCents / 100, currencyCode)}
+                      </p>
+                      <p className="text-xs text-muted-foreground">{item.share.toFixed(1)}%</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-2 h-2 rounded-full bg-muted overflow-hidden">
+                    <div className="h-full rounded-full" style={{ width: `${Math.max(item.share, 2)}%`, backgroundColor: COLORS[index % COLORS.length] }} />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 
-        {/* Resumen general */}
-        <div className="mt-6 grid grid-cols-3 gap-4">
-          <div className="border rounded-lg p-4 text-center">
-            <DollarSign className="h-5 w-5 mx-auto mb-2 text-muted-foreground" />
-            <div className="text-2xl font-bold">
+        <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="border rounded-lg p-4">
+            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+              <DollarSign className="h-4 w-4" />
+              <span className="text-xs">Revenue Total</span>
+            </div>
+            <div className="text-xl font-bold">
               {formatCurrencyAmount(roomTypeRevenue?.totalRevenue || 0, currencyCode, "es-DO", { maximumFractionDigits: 0 })}
             </div>
-            <div className="text-xs text-muted-foreground">Revenue Total</div>
           </div>
-          <div className="border rounded-lg p-4 text-center">
-            <BedDouble className="h-5 w-5 mx-auto mb-2 text-muted-foreground" />
-            <div className="text-2xl font-bold">
+
+          <div className="border rounded-lg p-4">
+            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+              <BedDouble className="h-4 w-4" />
+              <span className="text-xs">Total Reservas</span>
+            </div>
+            <div className="text-xl font-bold">
               {roomTypeRevenue?.totalReservations || 0}
             </div>
-            <div className="text-xs text-muted-foreground">Total Reservas</div>
           </div>
-          <div className="border rounded-lg p-4 text-center">
-            <DollarSign className="h-5 w-5 mx-auto mb-2 text-muted-foreground" />
-            <div className="text-2xl font-bold">
+
+          <div className="border rounded-lg p-4">
+            <div className="flex items-center gap-2 text-muted-foreground mb-1">
+              <TrendingUp className="h-4 w-4" />
+              <span className="text-xs">ADR Global</span>
+            </div>
+            <div className="text-xl font-bold">
               {formatCurrencyAmount(
                 (roomTypeRevenue?.totalRevenue || 0) / (roomTypeRevenue?.totalReservations || 1),
                 currencyCode,
@@ -180,7 +275,6 @@ export default function RevenueByRoomType() {
                 { maximumFractionDigits: 0 },
               )}
             </div>
-            <div className="text-xs text-muted-foreground">ADR Promedio</div>
           </div>
         </div>
       </CardContent>

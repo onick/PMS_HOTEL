@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,25 +9,129 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogTrigger } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ClipboardList, Plus, AlertCircle, Clock, CheckCircle2, XCircle, Calendar, MessageSquare } from "lucide-react";
+import { Plus, AlertCircle, Clock, CheckCircle2, XCircle, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { TaskDetailsDialog } from "@/components/tasks/TaskDetailsDialog";
+import { api, ApiError } from "@/lib/api";
+
+type TaskStatus = "PENDING" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
+type TaskPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
+
+interface TaskItem {
+  id: number;
+  title: string;
+  description?: string | null;
+  type: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  due_date?: string | null;
+  room_number?: string | null;
+  assigned_to_name?: string | null;
+}
+
+interface RoomItem {
+  id: number;
+  number: string;
+}
+
+interface StaffItem {
+  user_id: number;
+  profiles?: {
+    full_name?: string;
+  };
+}
+
+const taskTypes = [
+  { value: "MAINTENANCE", label: "Mantenimiento" },
+  { value: "CLEANING", label: "Limpieza" },
+  { value: "INSPECTION", label: "Inspección" },
+  { value: "REPAIR", label: "Reparación" },
+  { value: "DELIVERY", label: "Entrega" },
+  { value: "OTHER", label: "Otro" },
+];
+
+const initialFormData = {
+  title: "",
+  description: "",
+  type: "MAINTENANCE",
+  priority: "MEDIUM",
+  due_date: "",
+  room_id: "",
+  assigned_to: "",
+};
 
 export default function Tasks() {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [detailsDialogOpen, setDetailsDialogOpen] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<any>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
+  const [formData, setFormData] = useState(initialFormData);
+  const [statusTaskId, setStatusTaskId] = useState<number | null>(null);
+  const queryClient = useQueryClient();
 
-  // TODO: Wire up when backend tasks endpoints are available
-  const tasks: any[] = [];
-  const isLoading = false;
+  const { data: tasksResponse, isLoading } = useQuery({
+    queryKey: ["tasks"],
+    queryFn: () => api.getTasks({ per_page: "100" }),
+  });
 
-  const stats = {
+  const { data: roomsResponse } = useQuery({
+    queryKey: ["rooms", "tasks"],
+    queryFn: () => api.getRooms(),
+    staleTime: 60_000,
+  });
+
+  const { data: staffResponse } = useQuery({
+    queryKey: ["staff", "tasks"],
+    queryFn: () => api.getStaff(),
+    staleTime: 60_000,
+  });
+
+  const tasks = (tasksResponse?.data ?? []) as TaskItem[];
+  const rooms = (roomsResponse?.data ?? []) as RoomItem[];
+  const staff = (staffResponse?.data ?? []) as StaffItem[];
+
+  const createTaskMutation = useMutation({
+    mutationFn: (payload: Record<string, unknown>) => api.createTask(payload),
+    onSuccess: () => {
+      toast.success("Tarea creada correctamente");
+      setDialogOpen(false);
+      setFormData(initialFormData);
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-tasks"] });
+    },
+    onError: (error: ApiError) => {
+      toast.error(error.message || "No se pudo crear la tarea");
+    },
+  });
+
+  const updateTaskMutation = useMutation({
+    mutationFn: ({ taskId, status }: { taskId: number; status: TaskStatus }) =>
+      api.updateTask(taskId, { status }),
+    onSuccess: (_res, variables) => {
+      const statusLabel =
+        variables.status === "IN_PROGRESS"
+          ? "en progreso"
+          : variables.status === "COMPLETED"
+            ? "completada"
+            : "actualizada";
+      toast.success(`Tarea ${statusLabel}`);
+      queryClient.invalidateQueries({ queryKey: ["tasks"] });
+      queryClient.invalidateQueries({ queryKey: ["task", variables.taskId] });
+      queryClient.invalidateQueries({ queryKey: ["dashboard-tasks"] });
+    },
+    onError: (error: ApiError) => {
+      toast.error(error.message || "No se pudo actualizar la tarea");
+    },
+    onSettled: () => {
+      setStatusTaskId(null);
+    },
+  });
+
+  const stats = useMemo(() => ({
     total: tasks.length,
     pending: tasks.filter((t) => t.status === "PENDING").length,
     inProgress: tasks.filter((t) => t.status === "IN_PROGRESS").length,
     completed: tasks.filter((t) => t.status === "COMPLETED").length,
-  };
+  }), [tasks]);
 
   const priorityConfig: Record<string, { label: string; color: string; icon: any }> = {
     LOW: { label: "Baja", color: "bg-blue-100 text-blue-700", icon: Clock },
@@ -42,18 +147,39 @@ export default function Tasks() {
     CANCELLED: { label: "Cancelada", color: "destructive", icon: XCircle },
   };
 
-  const taskTypes = [
-    { value: "MAINTENANCE", label: "Mantenimiento" },
-    { value: "CLEANING", label: "Limpieza" },
-    { value: "INSPECTION", label: "Inspección" },
-    { value: "REPAIR", label: "Reparación" },
-    { value: "DELIVERY", label: "Entrega" },
-    { value: "OTHER", label: "Otro" },
-  ];
+  const handleCreateTask = () => {
+    if (!formData.title.trim()) {
+      toast.error("El título es obligatorio");
+      return;
+    }
 
-  const renderTaskCard = (task: any) => {
-    const priorityInfo = priorityConfig[task.priority as keyof typeof priorityConfig];
-    const statusInfo = statusConfig[task.status as keyof typeof statusConfig];
+    createTaskMutation.mutate({
+      title: formData.title.trim(),
+      description: formData.description.trim() || null,
+      type: formData.type,
+      priority: formData.priority,
+      due_date: formData.due_date || null,
+      room_id: formData.room_id ? Number(formData.room_id) : null,
+      assigned_to: formData.assigned_to ? Number(formData.assigned_to) : null,
+    });
+  };
+
+  const moveTaskForward = (task: TaskItem) => {
+    if (task.status === "PENDING") {
+      setStatusTaskId(task.id);
+      updateTaskMutation.mutate({ taskId: task.id, status: "IN_PROGRESS" });
+      return;
+    }
+
+    if (task.status === "IN_PROGRESS") {
+      setStatusTaskId(task.id);
+      updateTaskMutation.mutate({ taskId: task.id, status: "COMPLETED" });
+    }
+  };
+
+  const renderTaskCard = (task: TaskItem) => {
+    const priorityInfo = priorityConfig[task.priority as keyof typeof priorityConfig] || priorityConfig.MEDIUM;
+    const statusInfo = statusConfig[task.status as keyof typeof statusConfig] || statusConfig.PENDING;
     const StatusIcon = statusInfo.icon;
 
     return (
@@ -61,19 +187,42 @@ export default function Tasks() {
         <CardContent className="pt-6">
           <div className="flex items-start justify-between mb-3">
             <div className="flex-1">
-              <div className="flex items-center gap-2 mb-1">
-                <h4 className="font-semibold">{task.title}</h4>
-                <Badge className={priorityInfo.color}>{priorityInfo.label}</Badge>
+                <div className="flex items-center gap-2 mb-1">
+                  <h4 className="font-semibold">{task.title}</h4>
+                  <Badge className={priorityInfo.color}>{priorityInfo.label}</Badge>
+                  <Badge variant={statusInfo.color as "default" | "secondary" | "destructive" | "outline"}>
+                    {statusInfo.label}
+                  </Badge>
+                </div>
+              {task.description && (
+                <p className="text-sm text-muted-foreground mb-2">{task.description}</p>
+              )}
+              <div className="flex gap-2 flex-wrap text-xs text-muted-foreground">
+                {task.room_number && <span>Habitación {task.room_number}</span>}
+                {task.assigned_to_name && <span>Asignado a {task.assigned_to_name}</span>}
+                {task.due_date && <span>Vence {task.due_date}</span>}
               </div>
-              <p className="text-sm text-muted-foreground mb-2">{task.description}</p>
             </div>
             <StatusIcon className="h-5 w-5 text-muted-foreground" />
           </div>
           <div className="mt-3 flex gap-2 flex-wrap">
+            {(task.status === "PENDING" || task.status === "IN_PROGRESS") && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => moveTaskForward(task)}
+                disabled={updateTaskMutation.isPending && statusTaskId === task.id}
+              >
+                {task.status === "PENDING" ? "Iniciar" : "Completar"}
+              </Button>
+            )}
             <Button
               size="sm"
               variant="ghost"
-              onClick={() => { setSelectedTask(task); setDetailsDialogOpen(true); }}
+              onClick={() => {
+                setSelectedTaskId(task.id);
+                setDetailsDialogOpen(true);
+              }}
             >
               <MessageSquare className="h-4 w-4 mr-2" />
               Comentarios
@@ -104,7 +253,7 @@ export default function Tasks() {
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="bg-purple-500 hover:bg-purple-600">
+            <Button className="bg-secondary hover:bg-secondary/90">
               <Plus className="h-4 w-4 mr-2" />
               Nueva Tarea
             </Button>
@@ -112,21 +261,33 @@ export default function Tasks() {
           <DialogContent className="max-w-md">
             <DialogHeader>
               <DialogTitle>Nueva Tarea</DialogTitle>
-              <DialogDescription>Crear una nueva tarea u orden de trabajo</DialogDescription>
-            </DialogHeader>
+            <DialogDescription>Crear una nueva tarea u orden de trabajo</DialogDescription>
+          </DialogHeader>
             <div className="space-y-4">
               <div>
                 <Label>Título</Label>
-                <Input placeholder="Ej: Reparar grifo habitación 101" />
+                <Input
+                  placeholder="Ej: Reparar grifo habitación 101"
+                  value={formData.title}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, title: e.target.value }))}
+                />
               </div>
               <div>
                 <Label>Descripción</Label>
-                <Textarea placeholder="Detalles de la tarea..." rows={3} />
+                <Textarea
+                  placeholder="Detalles de la tarea..."
+                  rows={3}
+                  value={formData.description}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, description: e.target.value }))}
+                />
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label>Tipo</Label>
-                  <Select defaultValue="MAINTENANCE">
+                  <Select
+                    value={formData.type}
+                    onValueChange={(value) => setFormData((prev) => ({ ...prev, type: value }))}
+                  >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       {taskTypes.map((type) => (
@@ -137,7 +298,10 @@ export default function Tasks() {
                 </div>
                 <div>
                   <Label>Prioridad</Label>
-                  <Select defaultValue="MEDIUM">
+                  <Select
+                    value={formData.priority}
+                    onValueChange={(value) => setFormData((prev) => ({ ...prev, priority: value }))}
+                  >
                     <SelectTrigger><SelectValue /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="LOW">Baja</SelectItem>
@@ -148,18 +312,56 @@ export default function Tasks() {
                   </Select>
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <Label>Habitación (opcional)</Label>
+                  <Select
+                    value={formData.room_id}
+                    onValueChange={(value) => setFormData((prev) => ({ ...prev, room_id: value === "none" ? "" : value }))}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Seleccionar" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin habitación</SelectItem>
+                      {rooms.map((room) => (
+                        <SelectItem key={room.id} value={String(room.id)}>
+                          {room.number}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Asignar a (opcional)</Label>
+                  <Select
+                    value={formData.assigned_to}
+                    onValueChange={(value) => setFormData((prev) => ({ ...prev, assigned_to: value === "none" ? "" : value }))}
+                  >
+                    <SelectTrigger><SelectValue placeholder="Seleccionar" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">Sin asignar</SelectItem>
+                      {staff.map((member) => (
+                        <SelectItem key={member.user_id} value={String(member.user_id)}>
+                          {member.profiles?.full_name || `Usuario ${member.user_id}`}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
               <div>
                 <Label>Fecha límite (opcional)</Label>
-                <Input type="date" />
+                <Input
+                  type="date"
+                  value={formData.due_date}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, due_date: e.target.value }))}
+                />
               </div>
               <Button
-                onClick={() => {
-                  toast.info("Módulo de tareas próximamente disponible");
-                  setDialogOpen(false);
-                }}
+                onClick={handleCreateTask}
+                disabled={createTaskMutation.isPending}
                 className="w-full"
               >
-                Crear Tarea
+                {createTaskMutation.isPending ? "Creando..." : "Crear Tarea"}
               </Button>
             </div>
           </DialogContent>
@@ -247,9 +449,12 @@ export default function Tasks() {
       </Tabs>
 
       <TaskDetailsDialog
-        task={selectedTask}
+        taskId={selectedTaskId}
         open={detailsDialogOpen}
-        onClose={() => { setDetailsDialogOpen(false); setSelectedTask(null); }}
+        onClose={() => {
+          setDetailsDialogOpen(false);
+          setSelectedTaskId(null);
+        }}
       />
     </div>
   );

@@ -54,13 +54,11 @@ export default function DashboardHome() {
   });
 
   // Fetch pending tasks from Laravel API
-  const { data: tasks } = useQuery({
+  const { data: pendingTasks = [] } = useQuery({
     queryKey: ["dashboard-tasks"],
     queryFn: async () => {
-      const res = await api.getReservations({ status: "CHECKED_IN" });
-      // Tasks don't have a dedicated endpoint yet, return empty for now
-      // TODO: Create tasks API endpoint in Laravel
-      return [] as any[];
+      const res = await api.getTasks({ status: "PENDING", per_page: "5" });
+      return res.data ?? [];
     },
   });
 
@@ -438,7 +436,7 @@ export default function DashboardHome() {
                 onClick={() => navigate("/dashboard/tasks")}
               >
                 <CheckCircle2 className="h-4 w-4 mr-2" />
-                Tareas
+                Tareas {pendingTasks.length > 0 ? `(${pendingTasks.length})` : ""}
               </Button>
             </CardContent>
           </Card>

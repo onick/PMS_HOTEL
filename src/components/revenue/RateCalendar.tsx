@@ -2,7 +2,6 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
@@ -18,6 +17,14 @@ export default function RateCalendar({ hotelId }: Props) {
     startOfWeek(new Date(), { weekStartsOn: 1 }),
   );
   const [selectedRoomType, setSelectedRoomType] = useState<string>("all");
+
+  const formatRate = (cents: number, currency: string) =>
+    new Intl.NumberFormat("es-DO", {
+      style: "currency",
+      currency: currency || "USD",
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0,
+    }).format((cents || 0) / 100);
 
   const { data: roomTypes } = useQuery({
     queryKey: ["room-types-calendar", hotelId],
@@ -121,13 +128,13 @@ export default function RateCalendar({ hotelId }: Props) {
                   <td className="sticky left-0 bg-card z-10 p-2">
                     <div className="font-medium">{roomType.name}</div>
                     <div className="text-xs text-muted-foreground">
-                      Base: ${((roomType.base_price_cents || 0) / 100).toFixed(0)}
+                      Base: {formatRate(roomType.base_rate_cents || 0, roomType.currency || "USD")}
                     </div>
                   </td>
                   {days.map((day) => {
                     const dayStr = format(day, "yyyy-MM-dd");
                     const isToday = isSameDay(day, today);
-                    const basePrice = roomType.base_price_cents || 0;
+                    const basePrice = roomType.base_rate_cents || 0;
 
                     return (
                       <td
@@ -135,7 +142,7 @@ export default function RateCalendar({ hotelId }: Props) {
                         className={`text-center p-1.5 ${isToday ? "bg-primary/5" : ""}`}
                       >
                         <div className="text-xs text-muted-foreground">
-                          ${(basePrice / 100).toFixed(0)}
+                          {formatRate(basePrice, roomType.currency || "USD")}
                         </div>
                       </td>
                     );

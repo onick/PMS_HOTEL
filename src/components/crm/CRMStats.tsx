@@ -7,11 +7,26 @@ export default function CRMStats() {
   const { data: stats } = useQuery({
     queryKey: ["crm-stats"],
     queryFn: async () => {
-      const res = await api.getGuests({ per_page: "1000" });
-      const guests: any[] = res.data || [];
+      const firstPage = await api.getGuests({ per_page: "100", page: "1" });
+      const totalPages = Number(firstPage?.meta?.last_page || 1);
+
+      let guests: any[] = firstPage?.data || [];
+
+      if (totalPages > 1) {
+        const remainingPages = await Promise.all(
+          Array.from({ length: totalPages - 1 }, (_, index) =>
+            api.getGuests({ per_page: "100", page: String(index + 2) }),
+          ),
+        );
+
+        guests = [
+          ...guests,
+          ...remainingPages.flatMap((page) => page?.data || []),
+        ];
+      }
 
       const totalGuests = guests.length;
-      const vipGuests = guests.filter((g) => g.vip_status).length;
+      const vipGuests = guests.filter((g) => !!g.vip_level).length;
       const repeatGuests = guests.filter((g) => (g.total_stays || 0) > 1).length;
 
       const avgLifetimeValue = totalGuests > 0
