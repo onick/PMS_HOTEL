@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ChevronLeft, ChevronRight, CalendarDays } from "lucide-react";
 import { format, addDays, startOfWeek, addWeeks, subWeeks, isSameDay } from "date-fns";
 import { es } from "date-fns/locale";
+import { normalizeCurrencyCode } from "@/lib/currency";
 
 interface Props {
   hotelId: string;
@@ -19,10 +20,10 @@ export default function RateCalendar({ hotelId, currencyCode }: Props) {
   );
   const [selectedRoomType, setSelectedRoomType] = useState<string>("all");
 
-  const formatRate = (cents: number) =>
+  const formatRate = (cents: number, code?: string | null) =>
     new Intl.NumberFormat("es-DO", {
       style: "currency",
-      currency: currencyCode || "USD",
+      currency: normalizeCurrencyCode(code || currencyCode),
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format((cents || 0) / 100);
@@ -129,7 +130,7 @@ export default function RateCalendar({ hotelId, currencyCode }: Props) {
                   <td className="sticky left-0 bg-card z-10 p-2">
                     <div className="font-medium">{roomType.name}</div>
                     <div className="text-xs text-muted-foreground">
-                      Base: {formatRate(roomType.base_rate_cents || 0)}
+                      Base: {formatRate(roomType.base_rate_cents || 0, roomType.currency)}
                     </div>
                   </td>
                   {days.map((day) => {
@@ -143,7 +144,7 @@ export default function RateCalendar({ hotelId, currencyCode }: Props) {
                         className={`text-center p-1.5 ${isToday ? "bg-primary/5" : ""}`}
                       >
                         <div className="text-xs text-muted-foreground">
-                          {formatRate(basePrice)}
+                          {formatRate(basePrice, roomType.currency)}
                         </div>
                       </td>
                     );

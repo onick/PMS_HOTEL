@@ -41,6 +41,26 @@ const Dashboard = () => {
   }, []);
 
   useEffect(() => {
+    const refreshHotel = async () => {
+      try {
+        const hotelRes = await api.getHotel();
+        setHotel(hotelRes.data);
+      } catch {
+        // Best-effort refresh. Keep existing hotel state if it fails.
+      }
+    };
+
+    const onHotelUpdated = () => {
+      refreshHotel();
+    };
+
+    window.addEventListener("hotel:updated", onHotelUpdated);
+    return () => {
+      window.removeEventListener("hotel:updated", onHotelUpdated);
+    };
+  }, []);
+
+  useEffect(() => {
     const handleUnauthorized = (event: Event) => {
       const customEvent = event as CustomEvent<{ reason?: string }>;
       if (customEvent.detail?.reason === "idle_timeout") {

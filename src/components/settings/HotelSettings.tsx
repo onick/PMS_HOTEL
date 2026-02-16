@@ -91,6 +91,8 @@ export function HotelSettings() {
     },
     onSuccess: (response) => {
       queryClient.invalidateQueries({ queryKey: ["hotel-settings"] });
+      // Keep the dashboard header/currency context in sync.
+      window.dispatchEvent(new CustomEvent("hotel:updated"));
       toast.success(response.message || "Configuración actualizada correctamente");
     },
     onError: (error: any) => {
@@ -140,6 +142,8 @@ export function HotelSettings() {
       queryClient.invalidateQueries({ queryKey: ["hotel-settings"] });
       queryClient.invalidateQueries({ queryKey: ["room-types-settings"] });
       queryClient.invalidateQueries({ queryKey: ["room-types"] });
+      // Refresh dashboard context so currency symbols update immediately.
+      window.dispatchEvent(new CustomEvent("hotel:updated"));
       toast.success(res?.message || "Moneda de tarifas actualizada");
       setCurrencyWizardOpen(false);
       setWizardPreview(null);
